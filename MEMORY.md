@@ -110,20 +110,38 @@ Backtested 20 years (2006–2026), 59-ticker universe, next-day open entry, 60d 
 
 ---
 
-## ORB-FVG Strategy
+## ORB-FVG Strategy (2026-02-25 Decision)
 **Pattern:** Opening Range Breakout + Fair Value Gap Retest (Var C, SPY-aligned)
-**Live Config:** Var C ORB-only, 4:1 R:R → **+0.293R EV** (464 signals, 26% WR)
 
-**Per-Ticker EV:**
-| Ticker | EV |
-|--------|-----|
-| AAPL | +0.747R |
-| NVDA | +0.277R |
-| IWM  | +0.227R |
-| TSLA | +0.133R |
-| QQQ  | +0.128R |
+### 🚨 Hybrid Exit Strategy **FAILED** — Deploying Simple 3:1
 
-**Removed:** MSFT, GOOGL, AMZN, META, SPY (all negative or zero EV)
+**Why Hybrid Doesn't Work (Feb 25 Testing):**
+- Concept: 50% locks at target, 50% runner tries to capture extended moves
+- Reality: Runner gets crushed by original tight stop (hits on normal pullbacks) OR has no downside protection
+- Result: Runner exits at **-2R to -2.5R average** (deeply unprofitable)
+- Tested 4+ variations (quiet periods, reversal patterns, trailing stops, no-stop runner) — ALL negative
+
+**Test Results (3:1 R:R, 198 signals):**
+| Strategy | EV | vs Simple |
+|----------|-----|-----------|
+| **Simple 3:1 (NEW)** | **+0.051R** | baseline |
+| Hybrid (original) | -0.069R | -0.120R |
+| Hybrid + quiet/reversal | -0.061R to -0.126R | -0.112R to -0.177R |
+
+### ✅ **NEW LIVE CONFIG:** Simple 3:1 (No Hybrid Runner)
+- **R:R:** 3:1 (not 6:1 — higher WR, consistent 3R locks)
+- **Exit:** All position at target (no runners allowed)
+- **EV:** +0.051R per trade, 26.3% WR, breakeven at 25%
+- **Live:** Ready to deploy
+
+**Per-Ticker Breakdown (3:1 Simple):**
+| Ticker | EV | WR | Action |
+|--------|-----|-----|--------|
+| **AAPL** | **+0.600R** | 40.0% | ✅ Keep |
+| **TSLA** | **+0.241R** | 31.0% | ✅ Keep |
+| QQQ | -0.048R | 23.8% | ⚠️ Monitor |
+| IWM | -0.048R | 23.8% | ⚠️ Monitor |
+| NVDA | -0.179R | 20.5% | ❌ Pause |
 
 ---
 
