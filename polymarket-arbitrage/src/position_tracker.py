@@ -114,6 +114,20 @@ class PositionTracker:
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             """)
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS dry_run_opportunities (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    market_slug TEXT,
+                    market_title TEXT,
+                    yes_price REAL,
+                    no_price REAL,
+                    pair_cost REAL,
+                    guaranteed_profit REAL,
+                    profit_pct REAL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    status TEXT DEFAULT 'detected'  -- 'detected', 'executed', 'expired'
+                )
+            """)
             conn.commit()
             log.info("✅ Position database initialized")
     
@@ -233,6 +247,54 @@ class PositionTracker:
             ids = [row[0] for row in cursor.fetchall()]
         
         return [self.get_position(pid) for pid in ids if self.get_position(pid)]
+    
+    def log_dry_run_opportunity(self, market_slug: str, market_title: str, 
+                                yes_price: float, no_price: float):
+        """Log a dry-run arbitrage opportunity detected."""
+        pair_cost = yes_price + no_price
+        guaranteed_profit = 1.0 - pair_cost
+        profit_pct = (guaranteed_profit / (yes_price + no_price)) * 100 if pair_cost > 0 else 0
+        
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute(
+                """INSERT INTO dry_run_opportunities 
+                   (market_slug, market_title, yes_price, no_price, pair_cost, guaranteed_profit, profit_pct, status)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, 'detected')""",
+                (market_slug, market_title, yes_price, no_price, pair_cost, guaranteed_profit, profit_pct)
+            )
+            conn.commit()
+            log.info(f"📊 Logged dry-run opportunity: {market_slug} | ${guaranteed_profit:.4f} ({profit_pct:.2f}%)")
+    
+    def get_dry_run_stats(self) -> dict:
+        """Get statistics on dry-run opportunities."""
+        with sqlite3.connect(self.db_path) as conn:
+            # Total opportunities
+            cursor = conn.execute("SELECT COUNT(*) as count FROM dry_run_opportunities")
+            total = cursor.fetchone()[0]
+            
+            # Total potential profit
+            cursor = conn.execute("SELECT SUM(guaranteed_profit) as total FROM dry_run_opportunities")
+            total_profit = cursor.fetchone()[0] or 0
+            
+            # Best opportunity
+            cursor = conn.execute(
+                "SELECT market_title, guaranteed_profit, profit_pct FROM dry_run_opportunities ORDER BY guaranteed_profit DESC LIMIT 1"
+            )
+            best = cursor.fetchone()
+            
+            # Average profit per opportunity
+            avg_profit = total_profit / total if total > 0 else 0
+            
+            return {
+                "total_opportunities": total,
+                "total_potential_profit": round(total_profit, 4),
+                "avg_profit_per_opp": round(avg_profit, 4),
+                "best_opportunity": {
+                    "title": best[0] if best else None,
+                    "profit": round(best[1], 4) if best else 0,
+                    "profit_pct": round(best[2], 2) if best else 0
+                } if best else None
+            }
 
 
 # Example usage (for testing)

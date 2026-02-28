@@ -116,6 +116,15 @@ class GabagoolScanner:
         if pair_cost < target_cost:
             profit_potential = 1.0 - pair_cost
             
+            # Always log opportunities to database (for dry-run tracking)
+            if self.position_tracker:
+                self.position_tracker.log_dry_run_opportunity(
+                    market_slug=market.slug,
+                    market_title=market.title,
+                    yes_price=market.yes_price,
+                    no_price=market.no_price
+                )
+            
             if profit_potential > min_margin:
                 log.info(
                     f"🎯 OPPORTUNITY FOUND: {market.title}\n"
