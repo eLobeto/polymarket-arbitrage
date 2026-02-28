@@ -121,6 +121,6 @@ risk:
 # Development & Testing
 # ─────────────────────────────────────────────────────────────────────────
 dev:
-  dry_run: true         # Log trades without executing
+  dry_run: false        # ✅ LIVE TRADING ENABLED
   backtest_mode: false  # Use historical data instead of live
   verbose: true         # Extra debug output
