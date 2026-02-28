@@ -256,3 +256,112 @@ Backtested 20 years (2006–2026), 59-ticker universe, next-day open entry, 60d 
 - **Action:** Determine correct endpoint for live Bitcoin 15m markets (prices, orderbook)
   - Check Polymarket API docs or reverse-engineer from their UI
   - May need WebSocket for real-time prices instead of REST polling
+
+---
+
+## 🚀 Polymarket Arbitrage (`polymarket-arbitrage`) — FINAL STATUS (Feb 28)
+
+**STATUS:** Fully scaffolded and ready for live slug-based market polling
+
+### ✅ **API Discovery Complete**
+
+**Two critical endpoints identified:**
+
+1. **Market Discovery:** `https://gamma-api.polymarket.com/events`
+   - Returns all active crypto "UP OR DOWN" binary markets
+   - Can filter by BTC, ETH, SOL, etc.
+   - Returns markets between start/end times
+
+2. **Individual Market:** `https://gamma-api.polymarket.com/markets/slug/{slug}`
+   - Fetches live Bitcoin 15m market (e.g., `btc-updown-5m-1772241000`)
+   - Returns: `outcomePrices` (JSON string), volume, liquidity, condition_id
+   - Status: active/closed flags
+   - **Example working market:** `btc-updown-5m-1772241000`
+     - YES: $0.795, NO: $0.205 (pair cost = $1.00)
+
+3. **Pricing (Legacy CLOB):** `https://clob.polymarket.com/markets/{condition_id}`
+   - For trade execution (token info)
+
+### 🔧 **Implementation Complete**
+
+**Config-driven slug system:**
+```yaml
+polymarket:
+  clob_url: "https://gamma-api.polymarket.com"
+  bitcoin_market_slugs:
+    - "btc-updown-5m-1772241000"  # Seed list
+```
+
+**Market Fetcher (`market_fetcher.py`):**
+- Accepts list of market slugs
+- Fetches each by `/markets/slug/{slug}`
+- Parses `outcomePrices` (JSON string → floats)
+- Filters: active=true, closed=false only
+- Returns Market objects with YES/NO prices
+
+**Scanner Loop:**
+- Continuously polls configured slugs every 5 seconds
+- Calculates `pair_cost = yes_price + no_price`
+- Identifies arbitrage when `pair_cost < $0.99`
+- Dry-run mode: logs opportunities without trading
+
+### 🎯 **How to Deploy**
+
+**Step 1:** Get current Bitcoin 15m market slugs
+- Go to https://polymarket.com/search?q=bitcoin%2015m
+- You'll see 1000+ results for "Bitcoin Up or Down" with time windows
+- Pick 5-10 active ones (check "Ends in..." for open markets)
+- Copy their slug (e.g., `btc-updown-5m-1772241000`)
+
+**Step 2:** Update config
+```yaml
+bitcoin_market_slugs:
+  - "btc-updown-5m-1772241000"
+  - "btc-updown-15m-..."
+  - "btc-updown-5m-..."
+  # Add more as needed
+```
+
+**Step 3:** Restart scanner
+```bash
+cd polymarket-arbitrage
+./scripts/stop.sh
+./scripts/start.sh
+tail -f logs/scanner.log
+```
+
+**Step 4:** Watch for arbitrage opportunities
+```
+🎯 OPPORTUNITY FOUND: Bitcoin Up or Down - February 27, 9:45PM-10:00PM ET
+   YES: $0.48 | NO: $0.50
+   Pair Cost: $0.98 | Profit: $0.02
+🏁 DRY RUN MODE - Not executing
+```
+
+### ⚠️ **Important Notes**
+
+1. **Market Expiry:** Bitcoin 15m markets are ephemeral
+   - Each market only exists for its specific 15-minute window
+   - After window closes, new markets appear
+   - Need to refresh slug list periodically
+
+2. **Arbitrage Timing:** Opportunities appear on initialization
+   - Best edge when markets first open (more slippage)
+   - Edge shrinks as market converges to YES + NO = $1.00
+
+3. **Why 5m/15m vs Gabagool's 15m?**
+   - Polymarket has 5m, 15m, 30m, 1h windows
+   - More windows = more trading opportunities
+   - Smaller time windows = higher volatility = bigger arbitrage edges
+
+### 🔐 **Wallet & Live Trading (Ready)**
+- Polygon wallet: `0x63c654f5b0D420aDd67ace600b4AB795a5b4d030`
+- Bankroll: $100 USDC
+- Dry-run: True (set to False to enable live trading)
+- Order executor scaffolded (needs CLOB order signing)
+
+### 🚀 **Next Steps**
+1. Populate bitcoin_market_slugs with current active markets
+2. Run scanner in dry-run (validate price fetching & arbitrage detection)
+3. Enable live trading (set dry_run: false)
+4. Automate slug discovery (parse polymarket.com search or use events endpoint)

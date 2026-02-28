@@ -56,8 +56,7 @@ class GabagoolScanner:
     async def start(self):
         """Start the scanner loop."""
         async with PolymarketFetcher(
-            clob_url=self.config["polymarket"]["clob_url"],
-            market_slugs=self.config["polymarket"].get("bitcoin_market_slugs", [])
+            clob_url=self.config["polymarket"]["clob_url"]
         ) as fetcher:
             self.market_fetcher = fetcher
             

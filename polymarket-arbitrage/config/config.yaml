@@ -16,14 +16,7 @@ polygon:
 # ─────────────────────────────────────────────────────────────────────────
 polymarket:
   clob_url: "https://gamma-api.polymarket.com"
-  markets_endpoint: "/markets/slug"  # Direct endpoint: /markets/slug/{slug}
-  
-  # Bitcoin 15m/5m market slug seed list
-  # Format: btc-updown-5m-{timestamp} or btc-updown-15m-{timestamp}
-  # Fetch from polymarket.com search "bitcoin 15m" and update this list
-  # These are ephemeral markets that expire every 5-15 minutes
-  bitcoin_market_slugs:
-    - "btc-updown-5m-1772241000"  # Known working example
+  events_endpoint: "/events"  # ✅ Working endpoint for active UP OR DOWN markets
   
   # Smart contract addresses (Polymarket on Polygon)
   conditional_tokens_contract: "0x4D97DCd97eB9fDe18bd010B652606982fa8c1564"
