@@ -60,8 +60,8 @@ trading:
   min_profit_margin: 0.005   # Only trade if guaranteed profit > $0.005
   
   # Position sizing
-  bankroll_usdc: 100         # Total capital available ($100 test bankroll)
-  max_per_trade_pct: 0.20    # Max 20% of bankroll per position pair ($20 max)
+  bankroll_usdc: 100         # Reference bankroll (actual limit is 75% of wallet balance)
+  max_wallet_utilization: 0.75  # Use max 75% of available USDC wallet balance per trade
   
   # Balanced sizing: minimize waste from qty_YES ≠ qty_NO
   # Algorithm: binary search for spend level where min(qty_YES, qty_NO) / max(...) >= (1 - tolerance)

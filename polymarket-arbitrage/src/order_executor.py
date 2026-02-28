@@ -205,8 +205,8 @@ class OrderExecutor:
             log.error(f"Error cancelling order: {e}")
             return False
     
-    async def get_balance(self, token: str = "USDC") -> float:
-        """Get wallet balance."""
+    def get_balance(self, token: str = "USDC") -> float:
+        """Get wallet USDC balance (synchronous)."""
         try:
             # Get balances using SDK
             balances = self.client.get_balances()

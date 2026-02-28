@@ -253,11 +253,25 @@ class GabagoolScanner:
         try:
             config = self.config["trading"]
             
-            # Calculate balanced position size
+            # Get actual USDC balance from wallet
+            if not self.order_executor:
+                log.error("Order executor not initialized")
+                return
+            
+            wallet_balance = self.order_executor.get_balance("USDC")
+            max_trade_spend = wallet_balance * config["max_wallet_utilization"]
+            
+            if max_trade_spend <= 0:
+                log.error(f"Insufficient wallet balance: ${wallet_balance:.2f}")
+                return
+            
+            log.debug(f"Wallet balance: ${wallet_balance:.2f} → Max trade spend: ${max_trade_spend:.2f}")
+            
+            # Calculate balanced position size (using 75% of wallet balance)
             yes_qty, no_qty, yes_spend, no_spend = self._calculate_balanced_size(
                 market.yes_price,
                 market.no_price,
-                config["bankroll_usdc"] * config["max_per_trade_pct"],
+                max_trade_spend,
                 config["qty_balance_tolerance"],
             )
             
