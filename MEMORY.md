@@ -110,8 +110,32 @@ Backtested 20 years (2006–2026), 59-ticker universe, next-day open entry, 60d 
 
 ---
 
-## ORB-FVG Strategy (2026-02-25 Decision)
+## ORB-FVG Strategy (2026-02-25 Decision, Fixed 2026-02-26)
 **Pattern:** Opening Range Breakout + Fair Value Gap Retest (Var C, SPY-aligned)
+
+### 🐛 Bugs Found & Fixed (Feb 26–27)
+
+**Bug #1: ORB 0-DTE Expiry (Fixed Feb 26)**
+- Issue: ORB signals before 12 PM ET tried to buy same-day 0-DTE options
+- Root cause: `get_orb_expiry()` returned `today` instead of `tomorrow`
+- Fix: Always use 1-DTE minimum (next business day)
+- Impact: Alpaca has no liquidity for 0-DTE
+- Commit: `69c9977`
+
+**Bug #2: Duplicate Signals After Filter (Fixed Feb 27)**
+- Issue: IWM ORB fired Feb 27 @ 10:00 AM (suppressed by S&D filter), then again @ 10:01 AM (real attempt)
+- Root cause: Debounce only logged if Telegram alert **sent**, but filters happen **before** send
+  - Signal A fires → debounce check passes → S&D filter suppresses it → no alert → **no debounce logged**
+  - Signal A fires again 28s later → debounce check passes → alert sent → places trade → hits 0-DTE bug
+- Fix #2a: Log debounce **immediately when signal detected** (even if filtered)
+  - All suppress actions now call `ptm.log_debounce()` before `continue`
+  - Affected patterns: ORB-C, Inside Bar Bear (intraday+swing), Bear Flag, Bull Flag
+  - Commit: `968111a`
+- Fix #2b: Add bar-state check **before** running detector
+  - ORB now uses `_new_bar_closed()` to skip if bar timestamp unchanged
+  - Prevents detector from running on same bar twice
+  - Commit: `67ed271`
+- Impact: Dual protection — debounce prevents duplicate *trades*, bar-state prevents duplicate *signals*
 
 ### 🚨 Hybrid Exit Strategy **FAILED** — Deploying Simple 3:1
 
@@ -208,3 +232,27 @@ Backtested 20 years (2006–2026), 59-ticker universe, next-day open entry, 60d 
 ---
 
 **Historical Decision Logs & Detailed Methodology:** See `memory/archive/` (old MEMORY.md snapshot)
+
+---
+
+## 🚀 Polymarket Arbitrage (`polymarket-arbitrage`)
+**Status:** Scaffolded & deployed, API investigation in progress (Feb 27, 6:03 PM MT)
+
+**Deployed:**
+- ✅ Config-driven bot with Polygon wallet integration ($100 USDC)
+- ✅ Scanner running, polling Polymarket API every 5 seconds
+- ✅ Wallet: `0x63c654f5b0D420aDd67ace600b4AB795a5b4d030`
+- ✅ SQLite position tracker + order executor scaffolds
+
+**API Debugging Results:**
+- ✅ `/markets` endpoint confirmed correct + now using config variables
+- **Finding:** `/markets` returns 1000 **archived/historical markets** (from 2023)
+  - All markets have `yes_price: None`, `no_price: None`
+  - 0 Bitcoin 15m markets found
+  - 0 currently-trading markets with live prices
+- **Missing:** Live price data source
+  - Order book endpoint (`/order-book?market_id=...`) returns 404
+  - Price data doesn't come from `/markets` — need alternative endpoint
+- **Action:** Determine correct endpoint for live Bitcoin 15m markets (prices, orderbook)
+  - Check Polymarket API docs or reverse-engineer from their UI
+  - May need WebSocket for real-time prices instead of REST polling

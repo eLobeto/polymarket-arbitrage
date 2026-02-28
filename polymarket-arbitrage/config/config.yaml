@@ -1,0 +1,125 @@
+# polymarket-arbitrage config
+
+# ─────────────────────────────────────────────────────────────────────────
+# Blockchain & Network
+# ─────────────────────────────────────────────────────────────────────────
+polygon:
+  rpc_url: "https://polygon-rpc.com"
+  chain_id: 137
+  # Alternative RPC providers (backup):
+  rpc_backup:
+    - "https://rpc-mainnet.maticvigil.com"
+    - "https://matic-mainnet.chainstable.net:8545"
+
+# ─────────────────────────────────────────────────────────────────────────
+# Polymarket API
+# ─────────────────────────────────────────────────────────────────────────
+polymarket:
+  clob_url: "https://gamma-api.polymarket.com"
+  markets_endpoint: "/markets/slug"  # Direct endpoint: /markets/slug/{slug}
+  
+  # Bitcoin 15m/5m market slug seed list
+  # Format: btc-updown-5m-{timestamp} or btc-updown-15m-{timestamp}
+  # Fetch from polymarket.com search "bitcoin 15m" and update this list
+  # These are ephemeral markets that expire every 5-15 minutes
+  bitcoin_market_slugs:
+    - "btc-updown-5m-1772241000"  # Known working example
+  
+  # Smart contract addresses (Polymarket on Polygon)
+  conditional_tokens_contract: "0x4D97DCd97eB9fDe18bd010B652606982fa8c1564"
+  usdc_contract: "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174"  # USDC on Polygon
+  order_book_contract: "0xCB1bbe6622d3FB2d0378A1d3b21f0900E2618248"  # PolyMarket Order Book
+  
+  # Market filtering
+  market_filter:
+    keyword: "Bitcoin"
+    timeframe: "15-minute"
+    min_liquidity_usdc: 100  # Only trade markets with >$100 liquidity
+
+# ─────────────────────────────────────────────────────────────────────────
+# Wallet & Keys (DO NOT COMMIT THESE - use .env or secure vault)
+# ─────────────────────────────────────────────────────────────────────────
+wallet:
+  private_key: "${WALLET_PRIVATE_KEY}"  # Set via environment variable
+  address: "${WALLET_ADDRESS}"
+
+# ─────────────────────────────────────────────────────────────────────────
+# Coinbase Integration (for USDC funding)
+# ─────────────────────────────────────────────────────────────────────────
+coinbase:
+  api_key: ""  # Leave blank for now, add later if needed
+  api_secret: ""
+  api_passphrase: ""
+  # Coinbase API endpoint (defaults to https://api.coinbase.com)
+  sandbox: false
+
+# ─────────────────────────────────────────────────────────────────────────
+# Trading Parameters
+# ─────────────────────────────────────────────────────────────────────────
+trading:
+  # Arbitrage thresholds
+  target_combined_cost: 0.99  # Buy when avg_YES + avg_NO < this
+  min_profit_margin: 0.005   # Only trade if guaranteed profit > $0.005
+  
+  # Position sizing
+  bankroll_usdc: 100         # Total capital available ($100 test bankroll)
+  max_per_trade_pct: 0.20    # Max 20% of bankroll per position pair ($20 max)
+  qty_balance_tolerance: 0.05  # Allow qty_YES/qty_NO to differ by 5%
+  
+  # Order params
+  order_type: "limit"  # "limit" or "market"
+  limit_spread_pct: 0.01  # 1% above mid for limit orders
+  
+  # Polling
+  poll_interval_sec: 5  # Check markets every 5 seconds during 15min window
+  market_window_start_min: 0  # Start of each 15min window (0, 15, 30, 45)
+  market_window_duration_min: 15  # Duration of 15min markets
+
+# ─────────────────────────────────────────────────────────────────────────
+# Gas & Fees
+# ─────────────────────────────────────────────────────────────────────────
+gas:
+  max_gwei: 50  # Max gas price in Gwei
+  gas_estimate_multiplier: 1.2  # Over-estimate gas by 20%
+  
+# Polymarket fees
+fees:
+  settlement_fee_pct: 0.02  # 2% of winnings on settlement
+
+# ─────────────────────────────────────────────────────────────────────────
+# Alerts & Logging
+# ─────────────────────────────────────────────────────────────────────────
+telegram:
+  enabled: false  # Set to true once you have bot token
+  bot_token: ""   # Leave blank for now
+  chat_id: ""
+
+logging:
+  level: "INFO"  # DEBUG, INFO, WARNING, ERROR
+  log_file: "logs/polymarket.log"
+  max_log_size_mb: 10
+  backup_count: 3
+
+# ─────────────────────────────────────────────────────────────────────────
+# Database
+# ─────────────────────────────────────────────────────────────────────────
+database:
+  path: "data/polymarket_trades.db"
+  backup_interval_hours: 1
+
+# ─────────────────────────────────────────────────────────────────────────
+# Risk Management
+# ─────────────────────────────────────────────────────────────────────────
+risk:
+  max_total_exposure_usdc: 800  # Never deploy more than this
+  daily_loss_limit_usdc: -50    # Stop trading if daily loss > -$50
+  max_open_positions: 5         # Max concurrent position pairs
+  debounce_window_sec: 60       # Don't fire same market twice in 60 sec
+
+# ─────────────────────────────────────────────────────────────────────────
+# Development & Testing
+# ─────────────────────────────────────────────────────────────────────────
+dev:
+  dry_run: true         # Log trades without executing
+  backtest_mode: false  # Use historical data instead of live
+  verbose: true         # Extra debug output
