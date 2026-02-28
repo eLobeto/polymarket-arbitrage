@@ -66,9 +66,14 @@ class PolymarketFetcher:
         
         try:
             url = f"{self.clob_url}/events"
-            log.debug(f"Fetching from: {url}")
+            params = {
+                'limit': 100,
+                'order': 'startDate',
+                'ascending': 'false'
+            }
+            log.debug(f"Fetching from: {url} with params: {params}")
             
-            async with self.session.get(url, timeout=aiohttp.ClientTimeout(total=10)) as resp:
+            async with self.session.get(url, params=params, timeout=aiohttp.ClientTimeout(total=10)) as resp:
                 if resp.status != 200:
                     log.error(f"Failed to fetch events: {resp.status}")
                     return []
