@@ -1,73 +1,91 @@
 """
-order_executor.py — Place orders on Polymarket CLOB API with proper signing.
+order_executor.py — Place orders on Polymarket using official py-clob-client SDK.
+
+Uses the official Polymarket SDK which handles:
+- EIP-712 signing for authentication
+- L1 API credential generation
+- L2 HMAC-SHA256 request signing
+- Order creation and submission
 """
 
 import logging
-import asyncio
-import aiohttp
-from typing import Dict, Any, Optional
-from dataclasses import dataclass
-import json
-import hashlib
-import hmac
-from eth_keys import keys
-from eth_account import Account
-from eth_account.messages import encode_defunct
+import os
+from typing import Optional, Dict, Any
+from pathlib import Path
 
 log = logging.getLogger("order_executor")
 
-# Polymarket CLOB order signing constants
-POLYMARKET_CLOB_API = "https://clob.polymarket.com"
-
-
-@dataclass
-class Order:
-    """Represents a Polymarket order."""
-    market_id: str
-    side: str  # "YES" or "NO"
-    qty: float
-    price: float
-    order_hash: str
-    status: str = "pending"
-
 
 class OrderExecutor:
-    """Execute trades on Polymarket CLOB API with proper order signing."""
+    """Execute trades on Polymarket using official CLOB SDK."""
     
     def __init__(
         self,
         private_key: str,
         wallet_address: str,
-        clob_api_url: str = POLYMARKET_CLOB_API,
+        clob_api_url: str = "https://clob.polymarket.com",
     ):
         """
-        Initialize executor.
+        Initialize executor with official Polymarket SDK.
         
         Args:
             private_key: Wallet private key (hex string, with or without 0x prefix)
             wallet_address: Wallet public address
             clob_api_url: Polymarket CLOB API base URL
         """
+        try:
+            from py_clob_client.client import ClobClient
+            from py_clob_client.clob_types import OrderArgs, OrderType
+        except ImportError:
+            raise RuntimeError(
+                "py-clob-client not installed. Run: pip install py-clob-client==1.8.0"
+            )
+        
         # Normalize private key
         if not private_key.startswith("0x"):
             private_key = "0x" + private_key
         
-        self.account = Account.from_key(private_key)
+        self.private_key = private_key
         self.wallet_address = wallet_address.lower()
         self.clob_api_url = clob_api_url
-        self.session: Optional[aiohttp.ClientSession] = None
         
-        log.info(f"✅ OrderExecutor initialized. Wallet: {self.wallet_address}")
+        self.ClobClient = ClobClient
+        self.OrderArgs = OrderArgs
+        self.OrderType = OrderType
+        
+        # Initialize SDK client
+        try:
+            self.client = ClobClient(
+                host=clob_api_url,
+                chain_id=137,  # Polygon mainnet
+                key=private_key,
+            )
+            
+            log.info(f"✅ OrderExecutor initialized with official SDK")
+            log.info(f"   Wallet: {self.wallet_address}")
+            log.info(f"   CLOB API: {clob_api_url}")
+            
+        except Exception as e:
+            log.error(f"Failed to initialize ClobClient: {e}")
+            raise
     
-    async def __aenter__(self):
-        """Async context manager entry."""
-        self.session = aiohttp.ClientSession()
-        return self
-    
-    async def __aexit__(self, exc_type, exc_val, exc_tb):
-        """Async context manager exit."""
-        if self.session:
-            await self.session.close()
+    async def _ensure_api_credentials(self):
+        """Generate or retrieve API credentials for L2 authentication."""
+        try:
+            # Try to derive existing credentials
+            creds = self.client.create_or_derive_api_creds()
+            
+            if creds:
+                log.info("✅ API credentials ready for L2 authentication")
+                log.debug(f"   API Key: {creds.get('apiKey', '')[:8]}...")
+                return creds
+            else:
+                log.error("Failed to get API credentials")
+                return None
+                
+        except Exception as e:
+            log.error(f"Error getting API credentials: {e}")
+            return None
     
     async def place_order(
         self,
@@ -76,245 +94,153 @@ class OrderExecutor:
         side: str,  # "YES" or "NO"
         qty: float,
         price: float,
-        fvg_enabled: bool = True,
     ) -> Optional[str]:
         """
-        Place a buy order on Polymarket CLOB.
+        Place a buy order on Polymarket using official SDK.
         
         Args:
-            market_id: Polymarket market ID
-            condition_id: Condition ID for the market
+            market_id: Polymarket market ID (token_id)
+            condition_id: Condition ID (unused by SDK, but kept for interface)
             side: "YES" or "NO"
             qty: Quantity of shares
             price: Price per share (0.0-1.0)
-            fvg_enabled: Whether FVG (fair value gap) retest rules apply
         
         Returns:
-            Order hash on success, None on failure
+            Order ID on success, None on failure
         """
-        if not self.session:
-            raise RuntimeError("OrderExecutor not initialized. Use async context manager.")
-        
         try:
+            # Ensure we have API credentials
+            creds = await self._ensure_api_credentials()
+            if not creds:
+                log.error("Cannot place order without API credentials")
+                return None
+            
             cost = qty * price
             
             log.info(
                 f"📤 Placing {side} order: {qty:.2f} @ ${price:.4f} = ${cost:.2f}\n"
-                f"   Market: {market_id} | Condition: {condition_id}"
+                f"   Market: {market_id}"
             )
             
-            # Step 1: Build order object per Polymarket spec
-            order = self._build_order(
-                market_id=market_id,
-                condition_id=condition_id,
-                side=side,
-                qty=qty,
-                price=price,
+            # Convert side to SDK format
+            from py_clob_client.order_builder.constants import BUY, SELL
+            sdk_side = BUY if side.upper() == "YES" else SELL
+            
+            # Create and post order using official SDK
+            response = self.client.create_and_post_order(
+                self.OrderArgs(
+                    token_id=market_id,
+                    price=price,
+                    size=qty,
+                    side=sdk_side,
+                ),
+                options={
+                    "tick_size": "0.01",
+                    "neg_risk": False,
+                },
+                order_type=self.OrderType.GTC,  # Good-Till-Cancelled
             )
             
-            # Step 2: Sign order with private key
-            signature = self._sign_order(order)
-            if not signature:
-                log.error("Failed to sign order")
+            if response and response.get("success"):
+                order_id = response.get("orderID")
+                status = response.get("status")
+                
+                log.info(
+                    f"✅ Order placed successfully!\n"
+                    f"   Order ID: {order_id}\n"
+                    f"   Status: {status}"
+                )
+                
+                return order_id
+            else:
+                error_msg = response.get("errorMsg") if response else "Unknown error"
+                log.error(f"Order submission failed: {error_msg}")
                 return None
-            
-            # Step 3: Submit to CLOB API
-            order_hash = await self._submit_order_to_clob(order, signature)
-            if not order_hash:
-                log.error("Failed to submit order to CLOB")
-                return None
-            
-            log.info(f"✅ Order placed! Hash: {order_hash}")
-            return order_hash
         
         except Exception as e:
             log.error(f"❌ Error placing order: {e}", exc_info=True)
             return None
     
-    def _build_order(
-        self,
-        market_id: str,
-        condition_id: str,
-        side: str,
-        qty: float,
-        price: float,
-    ) -> Dict[str, Any]:
+    async def get_order_status(self, order_id: str) -> Dict[str, Any]:
         """
-        Build a Polymarket CLOB order object.
-        
-        Spec: https://docs.polymarket.com/api-reference
-        """
-        # Outcome index: 0=YES, 1=NO
-        outcome_index = 0 if side.upper() == "YES" else 1
-        
-        # Convert to integer amounts (Polymarket uses wei-like units)
-        # For simplicity, use standard fractional amounts
-        qty_int = int(qty * 1e6)  # Scale to millions for precision
-        price_int = int(price * 1e6)
-        
-        order = {
-            "marketId": market_id,
-            "conditionId": condition_id,
-            "outcomeIndex": outcome_index,
-            "side": side.upper(),
-            "amount": qty_int,
-            "price": price_int,
-            "orderType": "limit",
-            "salt": self._generate_salt(),
-            "maker": self.wallet_address,
-        }
-        
-        return order
-    
-    def _sign_order(self, order: Dict[str, Any]) -> Optional[str]:
-        """
-        Sign order with EIP-712 signature (Polymarket standard).
-        
-        For now, use simple message signing as a workaround.
-        TODO: Implement full EIP-712 when Polymarket SDK available.
-        """
-        try:
-            # Create deterministic message from order
-            order_msg = json.dumps(order, sort_keys=True)
-            order_hash = hashlib.sha256(order_msg.encode()).hexdigest()
-            
-            # Sign with private key
-            message = encode_defunct(text=order_hash)
-            signed_message = self.account.sign_message(message)
-            
-            signature = signed_message.signature.hex()
-            log.debug(f"Order signed: {signature[:20]}...")
-            
-            return signature
-        
-        except Exception as e:
-            log.error(f"Error signing order: {e}")
-            return None
-    
-    async def _submit_order_to_clob(
-        self,
-        order: Dict[str, Any],
-        signature: str,
-    ) -> Optional[str]:
-        """
-        Submit signed order to Polymarket CLOB API.
-        
-        Args:
-            order: Order dict
-            signature: Signed order hash
-        
-        Returns:
-            Order hash on success
-        """
-        try:
-            url = f"{self.clob_api_url}/orders"
-            
-            payload = {
-                "order": order,
-                "signature": signature,
-            }
-            
-            headers = {
-                "Content-Type": "application/json",
-            }
-            
-            log.debug(f"Submitting order to {url}: {json.dumps(payload, indent=2)}")
-            
-            async with self.session.post(
-                url,
-                json=payload,
-                headers=headers,
-                timeout=aiohttp.ClientTimeout(total=30),
-            ) as resp:
-                if resp.status not in (200, 201):
-                    error_text = await resp.text()
-                    log.error(f"CLOB API error ({resp.status}): {error_text}")
-                    return None
-                
-                result = await resp.json()
-                order_hash = result.get("orderHash")
-                
-                log.info(f"✅ CLOB accepted order: {order_hash}")
-                return order_hash
-        
-        except asyncio.TimeoutError:
-            log.error("Timeout submitting order to CLOB")
-            return None
-        except Exception as e:
-            log.error(f"Error submitting order to CLOB: {e}")
-            return None
-    
-    async def poll_fill_status(self, order_hash: str) -> Dict[str, Any]:
-        """
-        Poll CLOB API for order fill status.
+        Get order status from CLOB API.
         
         Returns:
             {
-                "status": "pending" | "filled" | "rejected",
-                "filled_qty": float,  # Quantity filled (if partial)
+                "status": "live" | "filled" | "cancelled" | "error",
+                "filled_qty": float,
                 "avg_price": float,
             }
         """
-        if not self.session:
-            raise RuntimeError("OrderExecutor not initialized. Use async context manager.")
-        
         try:
-            url = f"{self.clob_api_url}/orders/{order_hash}"
+            # SDK may have method to get order details
+            response = self.client.get_order(order_id)
             
-            async with self.session.get(
-                url,
-                timeout=aiohttp.ClientTimeout(total=10),
-            ) as resp:
-                if resp.status != 200:
-                    log.error(f"Error polling order status ({resp.status})")
-                    return {"status": "unknown"}
-                
-                result = await resp.json()
-                
+            if response:
                 return {
-                    "status": result.get("status", "unknown"),
-                    "filled_qty": float(result.get("filledAmount", 0)) / 1e6,
-                    "avg_price": float(result.get("avgPrice", 0)) / 1e6,
+                    "status": response.get("status", "unknown"),
+                    "filled_qty": float(response.get("filledAmount", 0)),
+                    "avg_price": float(response.get("avgPrice", 0)),
                 }
+            else:
+                return {"status": "error"}
         
         except Exception as e:
-            log.error(f"Error polling fill status: {e}")
+            log.error(f"Error getting order status: {e}")
             return {"status": "error"}
     
-    def _generate_salt(self) -> str:
-        """Generate unique salt for order (to prevent replays)."""
-        import time
-        import random
-        salt = int(time.time() * 1000) + random.randint(0, 999999)
-        return str(salt)
+    async def cancel_order(self, order_id: str) -> bool:
+        """Cancel an open order."""
+        try:
+            response = self.client.cancel_order(order_id)
+            
+            if response and response.get("success"):
+                log.info(f"✅ Order {order_id} cancelled")
+                return True
+            else:
+                log.error(f"Failed to cancel order {order_id}")
+                return False
+        
+        except Exception as e:
+            log.error(f"Error cancelling order: {e}")
+            return False
+    
+    async def get_balance(self, token: str = "USDC") -> float:
+        """Get wallet balance."""
+        try:
+            # Get balances using SDK
+            balances = self.client.get_balances()
+            
+            if token in balances:
+                return float(balances[token])
+            else:
+                log.warning(f"Token {token} not found in balances")
+                return 0.0
+        
+        except Exception as e:
+            log.error(f"Error getting balance: {e}")
+            return 0.0
 
 
 # Example usage (for testing)
 if __name__ == "__main__":
+    import asyncio
+    
     logging.basicConfig(
         level=logging.DEBUG,
         format="%(asctime)s %(name)s %(levelname)s %(message)s"
     )
     
     async def main():
-        # Note: Use test wallet only!
-        async with OrderExecutor(
-            private_key="0x" + "0" * 64,  # Dummy key
-            wallet_address="0x" + "0" * 40,  # Dummy address
-        ) as executor:
-            # Example order (dry-run)
-            order_hash = await executor.place_order(
-                market_id="btc_market_123",
-                condition_id="0x456...",
-                side="YES",
-                qty=100.0,
-                price=0.52,
-            )
-            
-            if order_hash:
-                # Poll for fill
-                await asyncio.sleep(2)
-                status = await executor.poll_fill_status(order_hash)
-                print(f"Order status: {status}")
+        executor = OrderExecutor(
+            private_key=os.getenv("WALLET_PRIVATE_KEY", "0x" + "0" * 64),
+            wallet_address=os.getenv("WALLET_ADDRESS", "0x" + "0" * 40),
+        )
+        
+        print("✅ OrderExecutor initialized with official SDK")
+        
+        # Test: get balance
+        balance = await executor.get_balance("USDC")
+        print(f"USDC Balance: ${balance:.2f}")
     
     asyncio.run(main())

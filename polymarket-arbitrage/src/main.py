@@ -13,7 +13,7 @@ import asyncio
 import logging
 import sys
 import os
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 # Load .env variables FIRST
@@ -83,16 +83,21 @@ class GabagoolScanner:
             
             # Initialize order executor (only if not dry-run mode)
             if not self.config["dev"]["dry_run"]:
-                async with OrderExecutor(
-                    private_key=self.config["wallet"]["private_key"],
-                    wallet_address=self.config["wallet"]["address"],
-                    clob_api_url=self.config["polymarket"]["clob_url"],
-                ) as executor:
-                    self.order_executor = executor
-                    await self._main_loop()
+                try:
+                    self.order_executor = OrderExecutor(
+                        private_key=self.config["wallet"]["private_key"],
+                        wallet_address=self.config["wallet"]["address"],
+                        clob_api_url=self.config["polymarket"]["clob_url"],
+                    )
+                    log.info("🚀 Live trading enabled with official Polymarket SDK")
+                except Exception as e:
+                    log.error(f"Failed to initialize order executor: {e}")
+                    log.info("Falling back to dry-run mode")
+                    self.config["dev"]["dry_run"] = True
             else:
                 log.info("🏁 DRY-RUN MODE: Orders will not be executed")
-                await self._main_loop()
+            
+            await self._main_loop()
     
     async def _main_loop(self):
         """Main scanner loop with error recovery."""
@@ -173,8 +178,17 @@ class GabagoolScanner:
         """Check if market has expired or is about to."""
         # If end_time is available, check it
         if hasattr(market, 'end_time') and market.end_time:
+            # Use UTC now to avoid timezone comparison issues
+            now_utc = datetime.now(timezone.utc)
+            
+            # Handle both naive and aware datetimes
+            end_time = market.end_time
+            if end_time.tzinfo is None:
+                # Naive datetime - assume UTC
+                end_time = end_time.replace(tzinfo=timezone.utc)
+            
             # Skip if market ends in <2 minutes
-            if market.end_time < datetime.now() + timedelta(minutes=2):
+            if end_time < now_utc + timedelta(minutes=2):
                 log.debug(f"Skipping market ending soon: {market.slug}")
                 return True
         
