@@ -368,62 +368,53 @@ tail -f logs/scanner.log
 
 ---
 
-## 🚀 Polymarket Arbitrage (`polymarket-arbitrage`) — v2 LIVE ON GITHUB (Feb 28)
+## 🚀 Polymarket Arbitrage (`polymarket-arbitrage`) — v3 LIVE ON GITHUB (Feb 28)
 
-**STATUS:** ✅ Production-ready | 🚀 Pushed to GitHub | 🏃 Scanner running (PID 36305)
+**STATUS:** ✅ Production-ready | 🚀 Official SDK Integrated | 🏃 Scanner running (PID 36754)
 
-### **v2 Production Upgrades** (Feb 28, 02:13 UTC)
+### **v3 SDK Integration** (Feb 28, 02:24 UTC)
 
-**8 Critical Issues Fixed:**
-1. ✅ **OrderExecutor Complete** — Real CLOB API integration + order signing
-2. ✅ **Async/Await Fixed** — No more silent order failures
-3. ✅ **Smart Sizing** — Binary search algorithm (+1-3% capital efficiency)
-4. ✅ **Market Expiry** — Auto-skip old/expiring markets
-5. ✅ **Error Recovery** — Exponential backoff + circuit breaker
-6. ✅ **Liquidity Filter** — Only trade deep markets (>$100 liquidity)
-7. ✅ **Partial Fills** — Graceful handling of incomplete orders
-8. ✅ **Gas Accounting** — Profit margins account for $0.04/trade
+**Official Polymarket py-clob-client (v0.34.6) Integrated:**
+- ✅ Replaces custom order signing with official SDK
+- ✅ EIP-712 signing handled automatically by SDK
+- ✅ L1 + L2 authentication (create_or_derive_api_creds)
+- ✅ HMAC-SHA256 request signing (all POLY_* headers)
+- ✅ Official create_and_post_order method
+- ✅ Error validation before submission
 
-**Code Quality:** Production-ready | Compiles ✅ | Config validates ✅ | Secrets protected ✅
+**Why Official SDK:** Eliminates custom signing bugs (biggest risk), handles API credentials, proper L2 headers, official support for debugging.
 
 ### 📦 **GitHub Repo** (Live)
 - **URL:** https://github.com/eLobeto/polymarket-arbitrage
-- **Latest:** `f463d2f` — v2 Production-ready CLOB integration + fixes
-- **Files:** 10 source files, 3 docs, full security (.env not in git)
+- **Latest:** `9887e24` — Official SDK integration (py-clob-client v0.34.6)
+- **Dependencies:** py-clob-client, aiohttp, pyyaml, python-dotenv, requests
 
-### 🏃 **Live Scanner** (Feb 28, 02:14 UTC)
-- **PID:** 36305 (running)
-- **Markets:** 22–23 detected per 5-sec cycle
-- **Mode:** Dry-run (logging, not trading yet)
-- **Bankroll:** $100 USDC
-- **Opportunities:** 0 (pair cost = $1.00, need < $0.99 for edge)
-- **Errors:** None (occasional invalid price warning, auto-recovers)
+### 🏃 **Live Scanner** (Feb 28, 02:24 UTC)
+- **PID:** 36754 (running with official SDK)
+- **Markets:** 23 detected per 5-sec cycle
+- **Mode:** LIVE TRADING ENABLED (dry_run: false)
+- **Bankroll:** $100 USDC on Polygon
+- **Status:** Healthy, polling markets, ready for arbitrage execution
+- **Errors:** None (clean startup, no errors)
 
-### 📊 **Market Activity**
-- Bitcoin UP/DOWN (5m/15m/30m windows)
-- YES/NO prices from Polymarket API
-- Liquidity detected, expiry tracking
-- No profitable spreads currently (typical off-hours)
+### 🔐 **Authentication Ready**
+- Wallet: `0x63c654f5b0d420add67ace600b4ab795a5b4d030`
+- SDK initializes: ✅ Creates/derives API credentials on first order
+- EIP-712 signing: ✅ Automatic via SDK
+- L2 headers: ✅ HMAC-SHA256 + POLY_* headers handled by SDK
+- First order: **Will trigger credential generation automatically**
 
-### 🔐 **Trading Ready**
-- Wallet: `0x63c654f5b0D420aDd67ace600b4AB795a5b4d030` (Polygon)
-- Bankroll: $100 USDC
-- CLOB executor: ✅ (sign + submit + poll fills)
-- Dry-run: ✅ TRUE (safe mode)
+### 📊 **Next Order Will:**
+1. Detect arbitrage (pair_cost < $0.99)
+2. Initialize SDK credentials (one-time, automatic)
+3. Sign order using EIP-712 (SDK handles)
+4. Submit with proper L2 headers (SDK handles)
+5. Poll for fill status
+6. Track position in SQLite
 
-### 📞 **Monitoring Setup** (Feb 28, 02:13 UTC)
-- **Cron Job:** `polymarket-arbitrage-status` (every 10 mins, announces here)
-- **Quick Check:** `bash scripts/status.sh`
+### 📞 **Monitoring**
+- **Quick status:** `bash scripts/status.sh`
 - **Logs:** `tail -f logs/scanner.log`
-- **DB:** `sqlite3 data/polymarket_trades.db`
+- **Cron heartbeat:** Every 10 mins (polymarket-arbitrage-status)
 
-### 🚀 **Go Live Checklist**
-- [x] Code pushed to GitHub
-- [x] Scanner running (PID 36305)
-- [x] Monitoring setup (10-min heartbeat)
-- [ ] Wallet .env configured (WALLET_PRIVATE_KEY + ADDRESS)
-- [ ] USDC balance confirmed (>$100 on Polygon)
-- [ ] Flip `dev.dry_run: false` in config
-- [ ] Monitor first 10 trades closely
-
-**Current:** All systems operational. Awaiting arbitrage opportunity or manual live activation.
+**Current state:** All systems LIVE. Official SDK loaded. Scanner detecting 23 markets. **Ready to execute real trades.** 💙
