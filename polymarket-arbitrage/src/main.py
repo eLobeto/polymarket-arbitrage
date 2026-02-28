@@ -64,6 +64,12 @@ class GabagoolScanner:
         self.last_error_time = None
         self.backoff_multiplier = 1.0
         
+        # Market refresh timing
+        self.last_market_discovery = None
+        self.market_discovery_interval = 120  # 2 minutes
+        self.price_refresh_interval = 10  # 10 seconds
+        self.cached_markets = []
+        
         # Stats
         self.cycle_count = 0
         self.opportunity_count = 0
@@ -151,20 +157,39 @@ class GabagoolScanner:
         )
     
     async def _scan_cycle(self):
-        """Single scan cycle: fetch markets, detect arbitrage, execute."""
+        """Single scan cycle: efficient market discovery + price refresh."""
         self.cycle_count += 1
         
-        # Fetch markets (filter by configured assets)
-        market_filter = self.config["polymarket"]["market_filter"]
-        assets = market_filter.get("assets", ["Bitcoin"])
+        # Decide: full discovery or price refresh?
+        now = datetime.now()
+        needs_discovery = (
+            self.last_market_discovery is None or
+            (now - self.last_market_discovery).total_seconds() >= self.market_discovery_interval
+        )
         
-        markets = await self.market_fetcher.fetch_markets(assets=assets)
-        
-        if not markets:
-            log.debug("No markets fetched this cycle")
-            return
-        
-        log.debug(f"Cycle {self.cycle_count}: Found {len(markets)} markets for {assets}")
+        if needs_discovery:
+            # Full market discovery (every 2 mins)
+            market_filter = self.config["polymarket"]["market_filter"]
+            assets = market_filter.get("assets", ["Bitcoin"])
+            
+            markets = await self.market_fetcher.fetch_market_list(assets=assets)
+            self.cached_markets = markets
+            self.last_market_discovery = now
+            
+            if not markets:
+                log.debug("No markets discovered this cycle")
+                return
+            
+            log.info(f"Cycle {self.cycle_count}: Market discovery found {len(markets)} markets for {assets}")
+        else:
+            # Price refresh on cached markets (every 10 secs)
+            markets = await self.market_fetcher.refresh_prices()
+            
+            if not markets:
+                log.debug("No markets in cache, will rediscover at next interval")
+                return
+            
+            log.debug(f"Cycle {self.cycle_count}: Price refresh on {len(markets)} cached markets")
         
         # Filter out expired markets
         active_markets = [m for m in markets if not self._is_market_expired(m)]

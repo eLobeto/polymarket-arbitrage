@@ -35,6 +35,9 @@ class PolymarketFetcher:
     """Fetch and monitor Polymarket crypto UP OR DOWN markets using events endpoint.
     
     Supports multiple assets (Bitcoin, Solana, Ethereum) and timeframes (5m, 10m, 15m).
+    Uses efficient discovery + price refresh pattern:
+    - Market discovery (expensive): every 2 minutes
+    - Price refresh (cheap): every 10 seconds
     """
     
     def __init__(self, clob_url: str = "https://gamma-api.polymarket.com"):
@@ -46,6 +49,7 @@ class PolymarketFetcher:
         """
         self.clob_url = clob_url
         self.session: Optional[aiohttp.ClientSession] = None
+        self.cached_markets: List[Market] = []  # Cache for price refreshes
     
     async def __aenter__(self):
         """Async context manager entry."""
@@ -57,9 +61,9 @@ class PolymarketFetcher:
         if self.session:
             await self.session.close()
     
-    async def fetch_markets(self, assets: List[str] = None) -> List[Market]:
+    async def fetch_market_list(self, assets: List[str] = None) -> List[Market]:
         """
-        Fetch all active crypto UP OR DOWN markets from events endpoint.
+        Discover all active crypto UP OR DOWN markets (expensive, run every 2 mins).
         
         Args:
             assets: List of assets to filter (e.g., ["Bitcoin", "Solana", "Ethereum"])
@@ -128,6 +132,9 @@ class PolymarketFetcher:
                                 markets.append(market_obj)
                 
                 log.info(f"Found {len(markets)} active markets across all filtered events")
+                
+                # Cache the markets for price refreshes
+                self.cached_markets = markets
                 return markets
         
         except asyncio.TimeoutError:
@@ -136,6 +143,71 @@ class PolymarketFetcher:
         except Exception as e:
             log.error(f"Error fetching events: {e}")
             return []
+    
+    async def refresh_prices(self, assets: List[str] = None) -> List[Market]:
+        """
+        Refresh prices on cached market list (cheap, run every 10 secs).
+        
+        Returns most recently cached markets with updated prices.
+        If cache is empty, falls back to full discovery.
+        
+        Args:
+            assets: List of assets (used only if cache is empty for fallback)
+        
+        Returns:
+            List of Market objects with current prices
+        """
+        if not self.session:
+            raise RuntimeError("Fetcher not initialized. Use async context manager.")
+        
+        # If no cached markets, do full discovery
+        if not self.cached_markets:
+            if assets is None:
+                assets = ["Bitcoin"]
+            return await self.fetch_market_list(assets)
+        
+        # Re-fetch prices for cached markets (lightweight)
+        try:
+            url = f"{self.clob_url}/events"
+            params = {
+                'limit': 100,
+                'order': 'startDate',
+                'ascending': 'false'
+            }
+            
+            async with self.session.get(url, params=params, timeout=aiohttp.ClientTimeout(total=10)) as resp:
+                if resp.status != 200:
+                    log.error(f"Failed to refresh prices: {resp.status}")
+                    return self.cached_markets  # Return stale cache
+                
+                events = await resp.json()
+                
+                # Build market map from events
+                market_map = {}
+                for event in events:
+                    for market in event.get("markets", []):
+                        market_id = market.get("id")
+                        if market_id:
+                            market_map[market_id] = market
+                
+                # Update cached markets with new prices
+                updated = []
+                for cached_market in self.cached_markets:
+                    if cached_market.market_id in market_map:
+                        raw = market_map[cached_market.market_id]
+                        updated_market = self._parse_market(raw)
+                        if updated_market:
+                            updated.append(updated_market)
+                    else:
+                        # Market no longer exists, skip it
+                        pass
+                
+                log.debug(f"Refreshed prices for {len(updated)}/{len(self.cached_markets)} cached markets")
+                return updated
+        
+        except Exception as e:
+            log.error(f"Error refreshing prices: {e}")
+            return self.cached_markets  # Return stale cache on error
     
     def _parse_market(self, raw_market: Dict[str, Any]) -> Optional[Market]:
         """Parse raw market data from events into Market object."""
