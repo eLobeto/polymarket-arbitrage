@@ -23,10 +23,18 @@ polymarket:
   usdc_contract: "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174"  # USDC on Polygon
   order_book_contract: "0xCB1bbe6622d3FB2d0378A1d3b21f0900E2618248"  # PolyMarket Order Book
   
-  # Market filtering
+  # Market filtering — UP OR DOWN arbitrage markets
   market_filter:
-    keyword: "Bitcoin"
-    timeframe: "15-minute"
+    # Cryptocurrencies to trade (Bitcoin, Solana, Ethereum)
+    assets:
+      - "Bitcoin"
+      - "Solana"
+      - "Ethereum"
+    
+    # Note: Polymarket labels timeframes as time ranges (e.g., "9:20PM-9:25PM ET")
+    # not explicit durations. Scanner trades all UP/DOWN markets for these assets
+    # across all timeframes (5m, 10m, 15m, etc.)
+    
     min_liquidity_usdc: 100  # Only trade markets with >$100 liquidity
 
 # ─────────────────────────────────────────────────────────────────────────

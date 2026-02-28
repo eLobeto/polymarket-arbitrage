@@ -154,14 +154,17 @@ class GabagoolScanner:
         """Single scan cycle: fetch markets, detect arbitrage, execute."""
         self.cycle_count += 1
         
-        # Fetch markets
-        markets = await self.market_fetcher.fetch_markets()
+        # Fetch markets (filter by configured assets)
+        market_filter = self.config["polymarket"]["market_filter"]
+        assets = market_filter.get("assets", ["Bitcoin"])
+        
+        markets = await self.market_fetcher.fetch_markets(assets=assets)
         
         if not markets:
             log.debug("No markets fetched this cycle")
             return
         
-        log.debug(f"Cycle {self.cycle_count}: Found {len(markets)} markets")
+        log.debug(f"Cycle {self.cycle_count}: Found {len(markets)} markets for {assets}")
         
         # Filter out expired markets
         active_markets = [m for m in markets if not self._is_market_expired(m)]

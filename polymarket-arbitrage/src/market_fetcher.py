@@ -1,5 +1,7 @@
 """
-market_fetcher.py — Fetch Bitcoin 15m markets from Polymarket Gamma API events endpoint.
+market_fetcher.py — Fetch crypto UP OR DOWN markets from Polymarket Gamma API events endpoint.
+
+Supports multiple assets (Bitcoin, Solana, Ethereum) and timeframes (5m, 10m, 15m).
 """
 
 import aiohttp
@@ -30,7 +32,10 @@ class Market:
 
 
 class PolymarketFetcher:
-    """Fetch and monitor Polymarket Bitcoin 15m markets using events endpoint."""
+    """Fetch and monitor Polymarket crypto UP OR DOWN markets using events endpoint.
+    
+    Supports multiple assets (Bitcoin, Solana, Ethereum) and timeframes (5m, 10m, 15m).
+    """
     
     def __init__(self, clob_url: str = "https://gamma-api.polymarket.com"):
         """
@@ -52,18 +57,25 @@ class PolymarketFetcher:
         if self.session:
             await self.session.close()
     
-    async def fetch_markets(self, keyword: str = "Bitcoin") -> List[Market]:
+    async def fetch_markets(self, assets: List[str] = None) -> List[Market]:
         """
-        Fetch all active Bitcoin UP OR DOWN markets from events endpoint.
+        Fetch all active crypto UP OR DOWN markets from events endpoint.
         
         Args:
-            keyword: Filter events by keyword (e.g., "Bitcoin", "BTC")
+            assets: List of assets to filter (e.g., ["Bitcoin", "Solana", "Ethereum"])
+                   If None, defaults to ["Bitcoin"]
         
         Returns:
             List of Market objects with current prices
         """
         if not self.session:
             raise RuntimeError("Fetcher not initialized. Use async context manager.")
+        
+        # Default to Bitcoin if not specified
+        if assets is None:
+            assets = ["Bitcoin"]
+        
+        assets_lower = [a.lower() for a in assets]
         
         try:
             url = f"{self.clob_url}/events"
@@ -82,19 +94,32 @@ class PolymarketFetcher:
                 events = await resp.json()
                 log.debug(f"Fetched {len(events)} events from Polymarket")
                 
-                # Filter for Bitcoin/crypto UP OR DOWN events
-                bitcoin_events = [
-                    e for e in events
-                    if keyword.lower() in e.get("title", "").lower()
-                    and "up or down" in e.get("title", "").lower()
-                    and e.get("active") and not e.get("closed")
-                ]
+                # Filter for crypto UP OR DOWN events matching assets
+                # Trades all timeframes (5m, 10m, 15m, etc.) for these assets
+                filtered_events = []
+                for e in events:
+                    title = e.get("title", "").lower()
+                    
+                    # Must contain "up or down"
+                    if "up or down" not in title:
+                        continue
+                    
+                    # Must match at least one asset
+                    asset_match = any(asset.lower() in title for asset in assets_lower)
+                    if not asset_match:
+                        continue
+                    
+                    # Must be active
+                    if not (e.get("active") and not e.get("closed")):
+                        continue
+                    
+                    filtered_events.append(e)
                 
-                log.info(f"Found {len(bitcoin_events)} active Bitcoin UP OR DOWN events")
+                log.info(f"Found {len(filtered_events)} active UP OR DOWN events for {assets}")
                 
                 # Extract markets from events
                 markets = []
-                for event in bitcoin_events:
+                for event in filtered_events:
                     for market in event.get("markets", []):
                         # Only process active markets
                         if market.get("active") and not market.get("closed"):
@@ -102,7 +127,7 @@ class PolymarketFetcher:
                             if market_obj:
                                 markets.append(market_obj)
                 
-                log.info(f"Found {len(markets)} active Bitcoin markets across events")
+                log.info(f"Found {len(markets)} active markets across all filtered events")
                 return markets
         
         except asyncio.TimeoutError:
