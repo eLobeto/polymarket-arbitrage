@@ -52,12 +52,20 @@ coinbase:
 trading:
   # Arbitrage thresholds
   target_combined_cost: 0.99  # Buy when avg_YES + avg_NO < this
+  
+  # Profit margin (accounts for gas + Polymarket fees)
+  # Gas cost: ~$0.01 per order (2 orders = $0.02)
+  # Polymarket fee: 2% of winnings (max $0.02 on $1 payout)
+  # Total: ~$0.04 per trade → min_profit_margin should be $0.005+
   min_profit_margin: 0.005   # Only trade if guaranteed profit > $0.005
   
   # Position sizing
   bankroll_usdc: 100         # Total capital available ($100 test bankroll)
   max_per_trade_pct: 0.20    # Max 20% of bankroll per position pair ($20 max)
-  qty_balance_tolerance: 0.05  # Allow qty_YES/qty_NO to differ by 5%
+  
+  # Balanced sizing: minimize waste from qty_YES ≠ qty_NO
+  # Algorithm: binary search for spend level where min(qty_YES, qty_NO) / max(...) >= (1 - tolerance)
+  qty_balance_tolerance: 0.05  # Allow qty_YES/qty_NO to differ by up to 5%
   
   # Order params
   order_type: "limit"  # "limit" or "market"

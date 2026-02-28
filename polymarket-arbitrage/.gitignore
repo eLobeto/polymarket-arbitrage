@@ -1,7 +1,9 @@
-# Environment
+# Environment & Secrets
 .env
 .env.local
-config/config.local.yaml
+*.pem
+*.key
+*.private
 
 # Python
 __pycache__/
@@ -9,11 +11,36 @@ __pycache__/
 *$py.class
 *.so
 .Python
-env/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+.venv/
 venv/
 ENV/
-pip-log.txt
-pip-delete-this-directory.txt
+env/
+
+# Logs
+logs/
+*.log
+*.log.*
+
+# Database
+data/
+*.db
+*.sqlite
+*.sqlite3
 
 # IDE
 .vscode/
@@ -22,17 +49,20 @@ pip-delete-this-directory.txt
 *.swo
 *~
 
-# Logs & Data
-logs/*.log
-data/*.db
-data/*.db-journal
-
 # OS
 .DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
 Thumbs.db
 
-# Misc
-.cache/
-dist/
-build/
-*.egg-info/
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Config backups
+*.backup
+*.bak

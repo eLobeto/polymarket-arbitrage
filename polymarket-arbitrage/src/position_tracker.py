@@ -153,41 +153,65 @@ class PositionTracker:
             log.info(f"✅ Created position {position_id} for {market_title}")
             return position_id
     
-    def add_trade(self, position_id: int, side: str, qty: float, price: float, order_hash: str):
+    def add_trade(
+        self,
+        position_id: int,
+        side: str,
+        qty: float,
+        price: float,
+        order_hash: str,
+        filled_qty: float = None,
+    ):
         """
-        Record a buy of YES or NO shares.
+        Record a buy of YES or NO shares (handles partial fills).
         
         Args:
             position_id: Position ID
             side: 'YES' or 'NO'
-            qty: Quantity of shares
+            qty: Original quantity ordered
             price: Price per share
             order_hash: Polymarket order hash (for tracking)
+            filled_qty: Actual quantity filled (defaults to qty if None)
         """
-        cost = qty * price
+        # Handle partial fills
+        actual_qty = filled_qty if filled_qty is not None else qty
+        cost = actual_qty * price
+        
         with sqlite3.connect(self.db_path) as conn:
+            # Determine fill status
+            fill_status = "filled"
+            if filled_qty and filled_qty < qty * 0.99:  # Less than 99% filled
+                fill_status = "partial"
+                log.warning(
+                    f"⚠️ Partial fill for {side}: {actual_qty:.2f}/{qty:.2f} shares "
+                    f"({actual_qty/qty*100:.1f}%)"
+                )
+            
             conn.execute(
                 """INSERT INTO trades (position_id, side, qty, price, cost, order_hash, status)
-                   VALUES (?, ?, ?, ?, ?, ?, 'filled')""",
-                (position_id, side, qty, price, cost, order_hash)
+                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                (position_id, side, actual_qty, price, cost, order_hash, fill_status)
             )
             
-            # Update position totals
+            # Update position totals with ACTUAL filled qty
             if side == "YES":
                 conn.execute(
                     """UPDATE positions SET qty_yes = qty_yes + ?, cost_yes = cost_yes + ?
                        WHERE id = ?""",
-                    (qty, cost, position_id)
+                    (actual_qty, cost, position_id)
                 )
             else:  # NO
                 conn.execute(
                     """UPDATE positions SET qty_no = qty_no + ?, cost_no = cost_no + ?
                        WHERE id = ?""",
-                    (qty, cost, position_id)
+                    (actual_qty, cost, position_id)
                 )
             
             conn.commit()
-            log.info(f"💰 Added {side} trade: {qty} @ ${price:.4f} = ${cost:.2f}")
+            log.info(
+                f"💰 Added {side} trade: {actual_qty:.2f} @ ${price:.4f} = ${cost:.2f} "
+                f"[{fill_status}]"
+            )
     
     def get_position(self, position_id: int) -> Optional[Position]:
         """

@@ -7,7 +7,7 @@ import asyncio
 import logging
 import json
 from typing import List, Dict, Any, Optional
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 
 log = logging.getLogger("market_fetcher")
@@ -26,6 +26,7 @@ class Market:
     volume_24h: float  # Volume last 24h
     condition_id: str  # For price fetching
     slug: str  # Market slug
+    end_time: Optional[datetime] = None  # When market expires
 
 
 class PolymarketFetcher:
@@ -132,6 +133,15 @@ class PolymarketFetcher:
             yes_price = float(outcome_prices[0])
             no_price = float(outcome_prices[1])
             
+            # Parse end time if available
+            end_time = None
+            end_time_str = raw_market.get("endDate")
+            if end_time_str:
+                try:
+                    end_time = datetime.fromisoformat(end_time_str.replace("Z", "+00:00"))
+                except Exception as e:
+                    log.debug(f"Could not parse end time: {e}")
+            
             return Market(
                 market_id=raw_market.get("id", ""),
                 title=raw_market.get("question", ""),
@@ -143,6 +153,7 @@ class PolymarketFetcher:
                 volume_24h=float(raw_market.get("volume24hr", 0)),
                 condition_id=raw_market.get("conditionId", ""),
                 slug=raw_market.get("slug", ""),
+                end_time=end_time,
             )
         except Exception as e:
             log.warning(f"Error parsing market: {e}")

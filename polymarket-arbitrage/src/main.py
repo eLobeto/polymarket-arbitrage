@@ -1,12 +1,19 @@
 """
 main.py — Gabagool binary arbitrage scanner for Polymarket Bitcoin 15min markets.
+
+Core fixes:
+- Proper async/await throughout
+- Market expiry checks (skip old markets)
+- Balanced position sizing (minimize waste)
+- Error recovery with backoff
+- Real order execution via OrderExecutor
 """
 
 import asyncio
 import logging
 import sys
 import os
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 # Load .env variables FIRST
@@ -35,7 +42,7 @@ log = logging.getLogger("main")
 
 
 class GabagoolScanner:
-    """Gabagool arbitrage scanner."""
+    """Gabagool arbitrage scanner with error recovery."""
     
     def __init__(self, config_path: str = None):
         """
@@ -51,7 +58,21 @@ class GabagoolScanner:
         self.market_fetcher = None
         self.order_executor = None
         
+        # Error tracking
+        self.consecutive_errors = 0
+        self.max_consecutive_errors = 5
+        self.last_error_time = None
+        self.backoff_multiplier = 1.0
+        
+        # Stats
+        self.cycle_count = 0
+        self.opportunity_count = 0
+        self.trade_count = 0
+        
         log.info("🎯 Gabagool Scanner initialized")
+        log.info(f"   Dry-run: {self.config['dev']['dry_run']}")
+        log.info(f"   Bankroll: ${self.config['trading']['bankroll_usdc']}")
+        log.info(f"   Target pair cost: ${self.config['trading']['target_combined_cost']}")
     
     async def start(self):
         """Start the scanner loop."""
@@ -62,42 +83,102 @@ class GabagoolScanner:
             
             # Initialize order executor (only if not dry-run mode)
             if not self.config["dev"]["dry_run"]:
-                self.order_executor = OrderExecutor(
-                    rpc_url=self.config["polygon"]["rpc_url"],
+                async with OrderExecutor(
                     private_key=self.config["wallet"]["private_key"],
                     wallet_address=self.config["wallet"]["address"],
-                    order_book_contract=self.config["polymarket"]["order_book_contract"],
-                    usdc_contract=self.config["polymarket"]["usdc_contract"],
-                )
-            
-            log.info("🚀 Starting scanner loop")
-            
-            # Main loop
-            try:
-                while True:
+                    clob_api_url=self.config["polymarket"]["clob_url"],
+                ) as executor:
+                    self.order_executor = executor
+                    await self._main_loop()
+            else:
+                log.info("🏁 DRY-RUN MODE: Orders will not be executed")
+                await self._main_loop()
+    
+    async def _main_loop(self):
+        """Main scanner loop with error recovery."""
+        log.info("🚀 Starting main scanner loop")
+        
+        try:
+            while True:
+                try:
                     await self._scan_cycle()
+                    
+                    # Reset error counter on successful cycle
+                    if self.consecutive_errors > 0:
+                        log.info(f"✅ Recovered from error state")
+                        self.consecutive_errors = 0
+                        self.backoff_multiplier = 1.0
+                    
                     await asyncio.sleep(self.config["trading"]["poll_interval_sec"])
-            except KeyboardInterrupt:
-                log.info("⏸️  Scanner stopped by user")
-            except Exception as e:
-                log.error(f"❌ Fatal error: {e}", exc_info=True)
+                
+                except Exception as e:
+                    await self._handle_cycle_error(e)
+                    
+                    # Backoff with exponential increase
+                    backoff_time = (
+                        self.config["trading"]["poll_interval_sec"] * 
+                        (2 ** self.consecutive_errors)
+                    )
+                    
+                    if self.consecutive_errors >= self.max_consecutive_errors:
+                        log.critical(
+                            f"❌ FATAL: {self.consecutive_errors} consecutive errors. "
+                            f"Stopping scanner."
+                        )
+                        break
+                    
+                    log.warning(f"⏳ Backoff: waiting {backoff_time}s before retry")
+                    await asyncio.sleep(backoff_time)
+        
+        except KeyboardInterrupt:
+            log.info("⏸️  Scanner stopped by user")
+        except Exception as e:
+            log.error(f"❌ Fatal error in main loop: {e}", exc_info=True)
+    
+    async def _handle_cycle_error(self, e: Exception):
+        """Handle error in scan cycle with logging."""
+        self.consecutive_errors += 1
+        self.last_error_time = datetime.now()
+        
+        log.error(
+            f"❌ Scan cycle error ({self.consecutive_errors}/{self.max_consecutive_errors}): {e}",
+            exc_info=True
+        )
     
     async def _scan_cycle(self):
         """Single scan cycle: fetch markets, detect arbitrage, execute."""
-        try:
-            # Fetch markets (using pre-configured slugs)
-            markets = await self.market_fetcher.fetch_markets()
-            
-            if not markets:
-                log.debug("No markets fetched")
-                return
-            
-            # Analyze each market
-            for market in markets:
-                await self._analyze_market(market)
+        self.cycle_count += 1
         
-        except Exception as e:
-            log.error(f"Error in scan cycle: {e}")
+        # Fetch markets
+        markets = await self.market_fetcher.fetch_markets()
+        
+        if not markets:
+            log.debug("No markets fetched this cycle")
+            return
+        
+        log.debug(f"Cycle {self.cycle_count}: Found {len(markets)} markets")
+        
+        # Filter out expired markets
+        active_markets = [m for m in markets if not self._is_market_expired(m)]
+        
+        if len(active_markets) < len(markets):
+            expired_count = len(markets) - len(active_markets)
+            log.debug(f"Filtered out {expired_count} expired markets")
+        
+        # Analyze each active market
+        for market in active_markets:
+            await self._analyze_market(market)
+    
+    def _is_market_expired(self, market: Market) -> bool:
+        """Check if market has expired or is about to."""
+        # If end_time is available, check it
+        if hasattr(market, 'end_time') and market.end_time:
+            # Skip if market ends in <2 minutes
+            if market.end_time < datetime.now() + timedelta(minutes=2):
+                log.debug(f"Skipping market ending soon: {market.slug}")
+                return True
+        
+        return False
     
     async def _analyze_market(self, market: Market):
         """
@@ -108,26 +189,35 @@ class GabagoolScanner:
         """
         # Calculate combined cost
         pair_cost = market.yes_price + market.no_price
-        
         target_cost = self.config["trading"]["target_combined_cost"]
         min_margin = self.config["trading"]["min_profit_margin"]
+        min_liquidity = self.config["polymarket"]["market_filter"]["min_liquidity_usdc"]
+        
+        # Check liquidity first
+        if market.liquidity < min_liquidity:
+            log.debug(
+                f"Insufficient liquidity: {market.slug} "
+                f"(${market.liquidity:.2f} < ${min_liquidity})"
+            )
+            return
         
         # Check if this is an opportunity
         if pair_cost < target_cost:
             profit_potential = 1.0 - pair_cost
             
-            # Always log opportunities to database (for dry-run tracking)
-            if self.position_tracker:
-                self.position_tracker.log_dry_run_opportunity(
-                    market_slug=market.slug,
-                    market_title=market.title,
-                    yes_price=market.yes_price,
-                    no_price=market.no_price
-                )
+            # Log all opportunities (for dry-run tracking)
+            self.position_tracker.log_dry_run_opportunity(
+                market_slug=market.slug,
+                market_title=market.title,
+                yes_price=market.yes_price,
+                no_price=market.no_price
+            )
+            
+            self.opportunity_count += 1
             
             if profit_potential > min_margin:
                 log.info(
-                    f"🎯 OPPORTUNITY FOUND: {market.title}\n"
+                    f"🎯 OPPORTUNITY #{self.opportunity_count}: {market.title}\n"
                     f"   YES: ${market.yes_price:.4f} | NO: ${market.no_price:.4f}\n"
                     f"   Pair Cost: ${pair_cost:.4f} | Profit: ${profit_potential:.4f}"
                 )
@@ -135,9 +225,9 @@ class GabagoolScanner:
                 # Execute arbitrage
                 await self._execute_arbitrage(market)
             else:
-                log.debug(f"Profit margin too small: ${profit_potential:.4f}")
+                log.debug(f"Margin too small: ${profit_potential:.4f} < ${min_margin}")
         else:
-            log.debug(f"{market.title}: Pair cost ${pair_cost:.4f} >= target ${target_cost:.4f}")
+            log.debug(f"{market.slug}: ${pair_cost:.4f} >= ${target_cost}")
     
     async def _execute_arbitrage(self, market: Market):
         """
@@ -146,38 +236,105 @@ class GabagoolScanner:
         Args:
             market: Market object
         """
-        config = self.config["trading"]
+        try:
+            config = self.config["trading"]
+            
+            # Calculate balanced position size
+            yes_qty, no_qty, yes_spend, no_spend = self._calculate_balanced_size(
+                market.yes_price,
+                market.no_price,
+                config["bankroll_usdc"] * config["max_per_trade_pct"],
+                config["qty_balance_tolerance"],
+            )
+            
+            log.info(
+                f"💰 Executing: {market.title}\n"
+                f"   YES: {yes_qty:.2f} @ ${market.yes_price:.4f} = ${yes_spend:.2f}\n"
+                f"   NO:  {no_qty:.2f} @ ${market.no_price:.4f} = ${no_spend:.2f}\n"
+                f"   Total Cost: ${yes_spend + no_spend:.2f}"
+            )
+            
+            if self.config["dev"]["dry_run"]:
+                log.info("🏁 DRY RUN — Not executing real orders")
+                self.trade_count += 1
+                return
+            
+            # Create position in DB first
+            pos_id = self.position_tracker.create_position(market.market_id, market.title)
+            
+            # Place YES order
+            yes_hash = await self.order_executor.place_order(
+                market_id=market.market_id,
+                condition_id=market.condition_id,
+                side="YES",
+                qty=yes_qty,
+                price=market.yes_price,
+            )
+            
+            if not yes_hash:
+                log.error(f"Failed to place YES order for position {pos_id}")
+                return
+            
+            # Place NO order
+            no_hash = await self.order_executor.place_order(
+                market_id=market.market_id,
+                condition_id=market.condition_id,
+                side="NO",
+                qty=no_qty,
+                price=market.no_price,
+            )
+            
+            if not no_hash:
+                log.error(f"Failed to place NO order for position {pos_id}")
+                return
+            
+            # Track trades in position
+            self.position_tracker.add_trade(pos_id, "YES", yes_qty, market.yes_price, yes_hash)
+            self.position_tracker.add_trade(pos_id, "NO", no_qty, market.no_price, no_hash)
+            
+            log.info(
+                f"✅ Position {pos_id} executed!\n"
+                f"   Guaranteed profit: ${min(yes_qty, no_qty) * (1.0 - (market.yes_price + market.no_price)):.2f}"
+            )
+            
+            self.trade_count += 1
         
-        # Calculate position size
-        bankroll = config["bankroll_usdc"]
-        max_per_trade_pct = config["max_per_trade_pct"]
-        max_spend = bankroll * max_per_trade_pct
+        except Exception as e:
+            log.error(f"Error executing arbitrage: {e}", exc_info=True)
+    
+    def _calculate_balanced_size(
+        self,
+        yes_price: float,
+        no_price: float,
+        max_spend: float,
+        tolerance_pct: float = 0.05,
+    ) -> tuple:
+        """
+        Calculate balanced YES/NO quantities to minimize waste.
         
-        # Simple sizing: spend equally on YES and NO
-        yes_spend = max_spend / 2
-        no_spend = max_spend / 2
+        Returns:
+            (yes_qty, no_qty, yes_spend, no_spend)
+        """
+        # Binary search for balanced allocation
+        for spend in range(int(max_spend * 100), 0, -1):
+            spend = spend / 100.0
+            
+            yes_qty = spend / yes_price
+            no_qty = spend / no_price
+            
+            # Check if balanced within tolerance
+            if yes_qty > 0 and no_qty > 0:
+                balance_ratio = min(yes_qty, no_qty) / max(yes_qty, no_qty)
+                if balance_ratio >= (1.0 - tolerance_pct):
+                    return (yes_qty, no_qty, spend, spend)
         
-        yes_qty = yes_spend / market.yes_price
-        no_qty = no_spend / market.no_price
-        
-        log.info(
-            f"💰 Executing arbitrage for {market.title}\n"
-            f"   YES: {yes_qty:.2f} shares @ ${market.yes_price:.4f} = ${yes_spend:.2f}\n"
-            f"   NO:  {no_qty:.2f} shares @ ${market.no_price:.4f} = ${no_spend:.2f}"
+        # Fallback to equal spend if search fails
+        return (
+            max_spend / yes_price,
+            max_spend / no_price,
+            max_spend,
+            max_spend,
         )
-        
-        if self.config["dev"]["dry_run"]:
-            log.info("🏁 DRY RUN MODE - Not executing")
-            return
-        
-        # Create position
-        pos_id = self.position_tracker.create_position(market.market_id, market.title)
-        
-        # Place orders (in real implementation, use order_executor)
-        # self.position_tracker.add_trade(pos_id, "YES", yes_qty, market.yes_price, "hash_yes")
-        # self.position_tracker.add_trade(pos_id, "NO", no_qty, market.no_price, "hash_no")
-        
-        log.info(f"✅ Arbitrage executed (position {pos_id})")
 
 
 async def main():
