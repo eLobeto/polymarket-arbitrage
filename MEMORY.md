@@ -113,6 +113,12 @@ Backtested 20 years (2006–2026), 59-ticker universe, next-day open entry, 60d 
 ## ORB-FVG Strategy (2026-02-25 Decision, Fixed 2026-02-26)
 **Pattern:** Opening Range Breakout + Fair Value Gap Retest (Var C, SPY-aligned)
 
+### 🐛 0-DTE Fill Delay Issue (Mar 3 - RESOLVED)
+- **Problem:** Orders placed at signal but filled hours later (e.g., TSLA/NVDA filled 60+ min after placement)
+- **Root Cause:** 1-DTE options (0 DTE at placement) had poor Alpaca liquidity; sat unfilled
+- **Solution:** Switched to **weekly expiry** (next Friday, 2-7 DTE) for ORB signals (Feb 26)
+- **Status:** ✅ Fixed. AAPL/QQQ/IWM (0-DTE) all closed this morning. Only TSLA/NVDA remain open (filled late due to old 1-DTE config, being resolved)
+
 ### 🐛 Bugs Found & Fixed (Feb 26–27)
 
 **Bug #1: ORB 0-DTE Expiry (Fixed Feb 26)**
@@ -173,15 +179,48 @@ Backtested 20 years (2006–2026), 59-ticker universe, next-day open entry, 60d 
 **Repo:** `eLobeto/kalshi-weather` (private)
 **Goal:** Automated weather prediction market trading.
 
-**Live:** Paper trading, $500 bankroll, Kelly 25% sizing
-- **NYC:** +43.6% ROI, Brier 0.071
-- **Denver:** +97.5% ROI, best city (MAE 2.06°F)
-- **Chicago:** Avoid band markets (Std 4.5°F, bias +3.0°F); thresholds only
+### 📊 Portfolio Status (March 1, 2026)
+- **Bankroll:** $500 (Kelly 25%)
+- **Total P&L:** -$85.99 (-17.2%)
+- **Trade Count:** 15 (6W, 9L)
+- **Win Rate:** 40%
+- **Killer Trade:** PT-0007 (Miami ≥82.5°F) lost $95.55 due to urban heat island underestimation
+
+### 🔬 Bias Calibration (Feb 28-Mar 1) — DEPLOYED
+
+**Problem:** Model forecasts systematically too cold in all cities (reanalysis bias, airport microclimate).
+
+**Backtest Results (2006-2026, daily highs):**
+
+| City | Forecast Bias | Accuracy Without | Accuracy With | Improvement |
+|------|----------------|------------------|-------------|-------------|
+| **Chicago (KORD)** | -2.96°F cold | 69.3% | **84.0%** | **+14.7pp** ✅ |
+| **NYC (KNYC)** | -1.07°F cold | 77.3% | **78.5%** | **+1.2pp** ✅ |
+| **Denver (KDEN)** | -1.09°F cold | 89.4% | 88.4% | -0.9pp (removed) |
+| **Miami (KMIA)** | -1.50°F cold | TBD | TBD | (estimated; UHI strong) |
+
+**Applied Adjustments** (in `src/signals/edge_detector.py`):
+```python
+CITY_BIAS_ADJUSTMENTS = {
+    "KNYC": 1.07,    # NYC: +1.2pp accuracy
+    "KORD": 2.96,    # Chicago: +14.7pp (strong UHI effect)
+    "KDEN": 0.00,    # Denver: Already well-calibrated
+    "KMIA": 1.50,    # Miami: Estimated (pending validation)
+}
+```
+
+**Impact:** Edge detector now warms ensemble forecasts before calculating probabilities. Chicago is massive win (14.7pp).
+
+### Live Notes
+- **NYC:** +43.6% ROI (cumulative, pre-bias-fix)
+- **Denver:** +97.5% ROI (best city before adjustment)
+- **Chicago:** Was avoided; now recalibrated with +14.7pp accuracy
+- **Miami:** Caused -$85.99 drawdown in 10 days; requires monitoring post-adjustment
 
 **Risk Flags:**
-- Reanalysis ≠ Forecast (Risk 8/10) — backtested on historical, live error will be higher
+- Reanalysis ≠ Forecast (Risk 8/10) — backtests used blended data, live forecasts will have higher error
 - Seasonal bias drift (Risk 6/10) — need rolling 30-day recalibration
-- Station microclimate (Risk 4/10) — 1-2°F urban heat island effect
+- Station microclimate (Risk 5/10) — now quantified and adjusted
 
 ---
 
@@ -365,6 +404,44 @@ tail -f logs/scanner.log
 2. Run scanner in dry-run (validate price fetching & arbitrage detection)
 3. Enable live trading (set dry_run: false)
 4. Automate slug discovery (parse polymarket.com search or use events endpoint)
+
+---
+
+## 🔄 Scanner V2 — Clean Rewrite (March 3, 2026)
+**Status:** ✅ Ready for live validation tomorrow
+
+**Goal:** Drop PTM dependency, use Schwab API as source of truth for positions + orders.
+
+**What Changed:**
+1. **New modules:**
+   - `src/scanner_v2.py` — Clean scanner (600 lines, ScannerV2 class)
+   - `src/signal_logger.py` — Lightweight append-only JSONL logging
+   - `src/position_sizer.py` — Risk-based sizing + exposure validation
+
+2. **Schwab executor enhanced:**
+   - Added `wait_for_fill(order_id, max_wait=60)` — polls Schwab API until fill
+
+3. **Order flow (simplified):**
+   - Detect signal → Log to JSONL → Alert → Get contract → Position size → Risk check → Place order → Wait for fill
+
+4. **Debounce:**
+   - In-memory `(ticker, pattern)` timestamp tracking (60s window)
+   - Prevents duplicate alerts on same bar
+
+**Test Coverage:**
+- 19 new tests for V2 (debounce, market hours, signal detection, risk checks)
+- All 85 tests passing (66 existing + 19 new)
+- Mock-based unit tests (no live API calls needed for validation)
+
+**Validation Plan (March 4):**
+- Run V2 in test mode (logging only) in parallel with V1
+- Compare detected signals (should match >90%)
+- Validate position sizing + Schwab API calls
+- If all green: enable order placement
+- Rollback plan: V1 unchanged, just stop V2
+
+**Commit:** `1ce9955` (V2 Scanner + tests)  
+**Doc:** `SCANNER_V2_VALIDATION.md` (detailed timeline + success criteria)
 
 ---
 
