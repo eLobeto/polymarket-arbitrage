@@ -449,13 +449,32 @@ tail -f logs/scanner.log
 - Debounce prevents duplicates (>60s suppressed)
 - All 85 tests still passing
 
+**Patterns Detected:**
+- ✅ Bear Flag 15min (short, measured-move)
+- ✅ Bull Flag 15min (long, measured-move)
+- ✅ ORB 5min (9:35–11:00 AM ET, simple 3:1)
+- ✅ Failed Breakdown 15min (long/short, intraday)
+- ✅ Inside Bar daily (next-day entry)
+- ✅ VCP daily (60-day hold)
+
+**Advanced Filters (all integrated):**
+- ✅ Earnings blackout (skip if earnings within 7 days)
+- ✅ Key Levels (suppress/amplify based on support/resistance)
+- ✅ Supply/Demand Zones (suppress/amplify)
+- ✅ IV Skew (amplify if vol skew favors direction)
+- ✅ SPY 200 SMA (macro filter for swing patterns)
+- ✅ IV Rank (skip if IVR too high)
+- ✅ EOD monitoring (check positions for large drawdowns @ 3:30 PM ET)
+
 **Commits:**
-- `cbab82f` — V2 with daily/15min bar fetching (Inside Bar + VCP functional)
+- `7326e1b` — Failed Breakdown + advanced filters + EOD monitoring
+- `0e66a37` — Bar-state check (_new_bar_closed)
+- `cbab82f` — Daily/15min bar fetching
 - `1ce9955` — V2 Scanner + tests (19 unit tests)
 - `f066f8c` — V2 validation plan
 
 **Docs:**
-- `SCANNER_V2_LIVE.md` — Deployment guide (new)
+- `SCANNER_V2_LIVE.md` — Deployment guide
 
 ---
 
