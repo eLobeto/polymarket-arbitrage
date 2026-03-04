@@ -488,7 +488,8 @@ tail -f logs/scanner.log
 - ✅ EOD monitoring (check positions for large drawdowns @ 3:30 PM ET)
 
 **Commits (GitHub):**
-- `49b37c2` — Clean up README (remove outdated V1 reference, focus on V2) (FINAL)
+- `6a644db` — Add earnings check to EOD monitoring for open swing positions (FINAL)
+- `49b37c2` — Clean up README (remove outdated V1 reference, focus on V2)
 - `6e09e8b` — README update + comprehensive code review document
 - `979fd5b` — 20 comprehensive tests for V2 advanced features (105 total tests)
 - `7326e1b` — Failed Breakdown + advanced filters + EOD monitoring
