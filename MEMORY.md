@@ -407,41 +407,55 @@ tail -f logs/scanner.log
 
 ---
 
-## 🔄 Scanner V2 — Clean Rewrite (March 3, 2026)
-**Status:** ✅ Ready for live validation tomorrow
+## 🔄 Scanner V2 — Live Deployment (March 3–4, 2026)
+**Status:** ✅ Live tomorrow (V1 stopped, V2 only)
 
-**Goal:** Drop PTM dependency, use Schwab API as source of truth for positions + orders.
+**Decision:** Go live with V2 only (no V1 parallel). Paper trading is safe for live iteration.
 
-**What Changed:**
-1. **New modules:**
-   - `src/scanner_v2.py` — Clean scanner (600 lines, ScannerV2 class)
-   - `src/signal_logger.py` — Lightweight append-only JSONL logging
-   - `src/position_sizer.py` — Risk-based sizing + exposure validation
+**Architecture:**
+- **No PTM dependency** — Schwab API source of truth
+- **Signal logger** — JSONL audit trail (`logs/signals.jsonl`)
+- **Position sizer** — Risk-based sizing + exposure validation
+- **Schwab executor** — Fill confirmation polling (`wait_for_fill`)
 
-2. **Schwab executor enhanced:**
-   - Added `wait_for_fill(order_id, max_wait=60)` — polls Schwab API until fill
-
-3. **Order flow (simplified):**
-   - Detect signal → Log to JSONL → Alert → Get contract → Position size → Risk check → Place order → Wait for fill
-
-4. **Debounce:**
-   - In-memory `(ticker, pattern)` timestamp tracking (60s window)
-   - Prevents duplicate alerts on same bar
+**Patterns Detected:**
+- ✅ Bear Flag 15min (short, measured-move)
+- ✅ Bull Flag 15min (long, measured-move)
+- ✅ ORB 5min (9:35–11:00 AM ET, simple 3:1)
+- ✅ Inside Bar daily (next-day entry)
+- ✅ VCP daily (60-day hold)
 
 **Test Coverage:**
-- 19 new tests for V2 (debounce, market hours, signal detection, risk checks)
+- 19 V2-specific unit tests (debounce, market hours, signal detection, risk)
 - All 85 tests passing (66 existing + 19 new)
-- Mock-based unit tests (no live API calls needed for validation)
+- Schwab API calls mocked during tests
 
-**Validation Plan (March 4):**
-- Run V2 in test mode (logging only) in parallel with V1
-- Compare detected signals (should match >90%)
-- Validate position sizing + Schwab API calls
-- If all green: enable order placement
-- Rollback plan: V1 unchanged, just stop V2
+**V1 Status:**
+- ✅ Stopped gracefully (PID 69377 killed 6:21 PM MT, March 3)
+- Code unchanged, can be restarted if needed
 
-**Commit:** `1ce9955` (V2 Scanner + tests)  
-**Doc:** `SCANNER_V2_VALIDATION.md` (detailed timeline + success criteria)
+**V2 Launch (Wednesday, March 4):**
+- 6:00 AM MT: Startup check (`python3 -m src.scanner_v2 --mode once`)
+- 9:30 AM ET: Launch daemon (`bash scripts/start_v2_scanner.sh`)
+- All day: Monitor logs + signals
+- 3:30 PM ET: Analyze results
+- 5:00 PM MT: Go/no-go decision
+
+**Success Metrics:**
+- Zero critical errors (0–2 minor warnings OK)
+- >5 signals detected + logged
+- Position sizing 1–10 contracts (respects risk limits)
+- Fill polling works (filled/timeout/cancelled statuses)
+- Debounce prevents duplicates (>60s suppressed)
+- All 85 tests still passing
+
+**Commits:**
+- `cbab82f` — V2 with daily/15min bar fetching (Inside Bar + VCP functional)
+- `1ce9955` — V2 Scanner + tests (19 unit tests)
+- `f066f8c` — V2 validation plan
+
+**Docs:**
+- `SCANNER_V2_LIVE.md` — Deployment guide (new)
 
 ---
 
