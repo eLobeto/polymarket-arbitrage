@@ -488,7 +488,8 @@ tail -f logs/scanner.log
 - ✅ EOD monitoring (check positions for large drawdowns @ 3:30 PM ET)
 
 **Commits (GitHub):**
-- `6e09e8b` — README update + comprehensive code review document (FINAL)
+- `49b37c2` — Clean up README (remove outdated V1 reference, focus on V2) (FINAL)
+- `6e09e8b` — README update + comprehensive code review document
 - `979fd5b` — 20 comprehensive tests for V2 advanced features (105 total tests)
 - `7326e1b` — Failed Breakdown + advanced filters + EOD monitoring
 - `0e66a37` — Bar-state check (_new_bar_closed)
