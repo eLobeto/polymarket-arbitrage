@@ -347,9 +347,20 @@ def _check_positions() -> None:
         pos["profit_usd"] = round(profit_usd, 4)
         updated = True
 
+        # Timeframe label + candle reference
+        if ticker:
+            tf_label    = "15m"
+            candle_ref  = f"<code>{ticker}</code>"
+        else:
+            tf_label    = "5m"
+            candle_ref  = ""
+
+        # ROI on stake
+        roi_pct = (profit_usd / cost_usd * 100) if cost_usd else 0
+
         log.info(
-            "Div fade settled: %s %s %s %s | %.1f shares @ %.1f¢  P&L=%s",
-            emoji, asset, signal, outcome, shares, fill_c, pnl_str,
+            "Div fade settled: %s %s %s %s %s | %.1f shares @ %.1f¢  P&L=%s  ROI=%+.0f%%",
+            emoji, asset, tf_label, signal, outcome, shares, fill_c, pnl_str, roi_pct,
         )
 
         # Running total across all resolved positions.
@@ -361,12 +372,19 @@ def _check_positions() -> None:
             if p.get("outcome") in ("win", "loss") and p is not pos
         ) + profit_usd
 
+        # Win/loss counts for running stats line
+        _all_resolved = [p for p in positions if p.get("outcome") in ("win", "loss")]
+        _wins = sum(1 for p in _all_resolved if p["outcome"] == "win")
+        _total_r = len(_all_resolved)
+        _wr = _wins / _total_r * 100 if _total_r else 0
+
+        _candle_line = f"\nCandle: {candle_ref}" if candle_ref else ""
         _alert(
-            f"{emoji} <b>DIV FADE SETTLED</b> — {asset} {signal}\n"
-            f"Outcome: <b>{outcome.upper()}</b>  {pnl_str}\n"
+            f"{emoji} <b>DIV FADE {outcome.upper()}</b> — {asset} {tf_label} {signal}\n"
+            f"P&L: <b>{pnl_str}</b>  ({roi_pct:+.0f}% on stake)\n"
             f"{shares:.0f} shares @ {fill_c:.1f}¢  (cost ${cost_usd:.2f})\n"
-            f"Oracle gap: ${div_gap:.2f}  |  <code>{ticker}</code>\n"
-            f"Running P&amp;L: <b>${total_pnl:+.2f}</b>"
+            f"Oracle gap at entry: ${div_gap:.0f}{_candle_line}\n"
+            f"Session: {_wins}W/{_total_r}R = {_wr:.0f}% WR  |  Running P&amp;L: <b>${total_pnl:+.2f}</b>"
         )
 
     if updated:

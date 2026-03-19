@@ -289,16 +289,32 @@ def _execute_live_fade(
         # ── Telegram alert ──────────────────────────────────────────────────
         try:
             import notifier as _ntf
+            from datetime import datetime, timezone as _tz
+
             _stake_note = (
                 f"${cost:.2f} of ${DIV_FADE_STAKE_USD:.0f} (book thin)"
                 if effective_stake < DIV_FADE_STAKE_USD
                 else f"${cost:.2f}"
             )
+            # Candle reference: Kalshi ticker for 15m, close time for 5m
+            if kal_ticker:
+                _tf_label   = "15m"
+                _candle_ref = f"<code>{kal_ticker}</code>"
+            else:
+                _tf_label   = "5m"
+                _close_t    = datetime.fromtimestamp(candle_end_ts, tz=_tz.utc).strftime("%H:%M UTC")
+                _candle_ref = f"closes {_close_t}"
+
+            # Breakeven: need PM token to expire > fill price
+            _be = round(fill_price_cents, 1)
+
             _ntf._send(
-                f"🌊 <b>DIV FADE LIVE</b> — {asset} {signal}\n"
-                f"Bought: <b>{shares:.0f} shares @ {fill_price_cents:.1f}¢</b> ({_stake_note})\n"
-                f"Oracle gap: <b>${abs(divergence):.2f}</b> | signal {signal_price_cents:.1f}¢ → live {live_cents:.1f}¢\n"
-                f"Candle: <code>{kal_ticker}</code>"
+                f"🌊 <b>DIV FADE ENTRY</b> — {asset} {_tf_label} {signal}\n"
+                f"Bought <b>{shares:.0f} shares @ {fill_price_cents:.1f}¢</b>  ({_stake_note})\n"
+                f"Oracle gap: <b>${abs(divergence):.0f}</b>  |  "
+                f"signal {signal_price_cents:.0f}¢ → live {live_cents:.0f}¢\n"
+                f"Breakeven: price settles &gt;{_be:.0f}¢\n"
+                f"Candle: {_candle_ref}"
             )
         except Exception as _te:
             log.debug("[DIV_FADE] Telegram alert failed: %s", _te)
