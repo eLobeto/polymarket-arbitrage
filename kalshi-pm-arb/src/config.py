@@ -108,6 +108,16 @@ DIV_FADE_LIVE_SIGNALS: dict[str, bool] = {
 DIV_FADE_GO_LIVE_MIN_RESOLVED = 50    # minimum resolved outcomes required
 DIV_FADE_GO_LIVE_MIN_WR       = 0.50  # minimum win rate required
 
+# ── Divergence dead-band filter ────────────────────────────────────────────────
+# Skip signals where abs_divergence falls within (lo, hi) for a given signal key.
+# Data shows the $50-150 band on BTC 5m PM_DN is noise (44% WR) while <$50 and
+# >$150 both show 65-69% WR — filtering it yields 67% WR vs 59% unfiltered.
+# Format: "ASSET_TF_SIGNAL": (lo_usd, hi_usd) — inclusive lo, exclusive hi.
+# Empty dict = no filtering.
+DIV_FADE_SKIP_DIV_RANGE: dict[str, tuple[float, float]] = {
+    "BTC_5m_PM_DN": (50.0, 150.0),
+}
+
 # (Divergence Collapse Entry / Strategy #3 removed — see git history)
 
 # ── Rollback churn prevention ────────────────────────────────────────────────

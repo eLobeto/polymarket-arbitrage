@@ -28,6 +28,7 @@ from config import (
     DIV_FADE_MIN_PRICE_CENTS,
     DIV_FADE_LIVE_SIGNALS,
     DIV_FADE_ENABLED,
+    DIV_FADE_SKIP_DIV_RANGE,
 )
 
 log = logging.getLogger("div_fade_5m")
@@ -245,6 +246,17 @@ def maybe_log_5m_signal(
     if pm_price < DIV_FADE_MIN_PRICE_CENTS:
         log.debug("[DIV_FADE_5M] Skip %s %s — price %.1f¢ < min %.1f¢", asset, signal, pm_price, DIV_FADE_MIN_PRICE_CENTS)
         return
+
+    # ── Divergence dead-band filter ────────────────────────────────────────────
+    _skip_range = DIV_FADE_SKIP_DIV_RANGE.get(f"{asset}_5m_{signal}")
+    if _skip_range:
+        _lo, _hi = _skip_range
+        if _lo <= abs(divergence) < _hi:
+            log.debug(
+                "[DIV_FADE_5M] Skip %s %s — div $%.0f in dead-band ($%.0f–$%.0f)",
+                asset, signal, abs(divergence), _lo, _hi,
+            )
+            return
 
     # Sim P&L
     shares       = (_SIM_STAKE_USD * 100) / pm_price
