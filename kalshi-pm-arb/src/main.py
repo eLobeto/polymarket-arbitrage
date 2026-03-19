@@ -28,7 +28,7 @@ import trade_logger
 import div_fade_monitor
 from config import (
     LIVE_TRADING, PM_FUNDER, POLL_INTERVAL_SECS, POLL_INTERVAL_OVERNIGHT_SECS, MARKET_REFRESH_SECS,
-    COOLDOWN_SECS, ASSETS, MAX_DIRECTIONAL_USD, DIRECTIONAL_MAX_PER_SIDE,
+    ASSETS, MAX_DIRECTIONAL_USD, DIRECTIONAL_MAX_PER_SIDE,
 )
 
 REDEEM_INTERVAL_SECS = 300  # redeem every 5 minutes
@@ -51,7 +51,7 @@ def _load_cooldowns() -> dict:
             )
             return {}
         now = time.time()
-        return {k: v for k, v in data.items() if now - v < COOLDOWN_SECS}
+        return {k: v for k, v in data.items() if now < v}  # v is expiry timestamp
     except Exception:
         return {}
 
@@ -319,10 +319,10 @@ async def main():
                           kal_ticker, open_dir_dn, DIRECTIONAL_MAX_PER_SIDE)
                 continue
 
-            last_entry = cooldowns.get(kal_ticker, 0)
-            if now - last_entry < COOLDOWN_SECS:
+            expiry = cooldowns.get(kal_ticker, 0)
+            if now < expiry:
                 log.debug("Already entered %s this candle (%.0fs left)", kal_ticker,
-                          COOLDOWN_SECS - (now - last_entry))
+                          expiry - now)
                 continue
 
             log.info("[ARB] %s %s: PM %s @ %.1f¢ + Kalshi %s @ %.1f¢ = %.1f¢ combined (profit %.1f¢)",
@@ -333,7 +333,7 @@ async def main():
 
             if not LIVE_TRADING:
                 notifier.paper_window(window)
-                cooldowns[kal_ticker] = now
+                cooldowns[kal_ticker] = window["kalshi_market"]["candle_end_ts"]
                 continue
 
             notifier.arb_detected(window)
@@ -374,7 +374,7 @@ async def main():
             skip_cooldown = result.get("skip_cooldown", False)
             no_attempt_errors = ("balance too low", "contract count < 1", "geoblocked", "not enough balance")
             if not skip_cooldown and not any(e in skip_reason for e in no_attempt_errors):
-                cooldowns[kal_ticker] = now
+                cooldowns[kal_ticker] = window["kalshi_market"]["candle_end_ts"]
                 _save_cooldowns(cooldowns)
             elif skip_cooldown or any(e in skip_reason for e in no_attempt_errors):
                 log.info("Skipping cooldown for %s — no execution attempted (%s)", kal_ticker, skip_reason)

@@ -8,10 +8,7 @@ from config import (MIN_ARB_CENTS, MAX_PAIR_COST, MIN_SIDE_CENTS,
                     MAX_SIDE_CENTS, WINDOW_MIN_MINUTES,
                     CANDLE_OPEN_SKIP_MINUTES, ORACLE_MAX_DIVERGENCE_USD,
                     CANDLE_MOVE_MARGIN, CANDLE_MOVE_FLOOR,
-                    ROLLBACK_BLACKLIST_SECS,
-                    DIV_COLLAPSE_STAKE_USD, DIV_COLLAPSE_THRESHOLD,
-                    DIV_COLLAPSE_PEAK_FACTOR, DIV_COLLAPSE_WINDOW_SECS,
-                    DIV_COLLAPSE_MAX_GAP_RATIO)
+                    ROLLBACK_BLACKLIST_SECS)
 import price_feed
 import div_fade_logger
 import div_fade_5m
@@ -26,29 +23,6 @@ CANDLE_ALIGN_SECS = 300  # candle ends must be within 5 minutes
 _rollback_blacklist: dict[str, float] = {}
 _blacklist_lock = threading.Lock()
 
-# ── Open arb guard ────────────────────────────────────────────────────────────
-import json as _json
-import os as _os
-
-_OPEN_ARBS_FILE = _os.path.join(
-    _os.path.dirname(_os.path.abspath(__file__)), "..", "logs", "open_arbs.json"
-)
-
-def _is_ticker_already_open(kal_ticker: str) -> bool:
-    """Return True if kal_ticker already has an open arb position tracked.
-
-    Prevents Divergence Collapse from double-entering a candle that was
-    already filled by the normal arb path.
-    """
-    try:
-        with open(_OPEN_ARBS_FILE) as f:
-            open_arbs = _json.load(f)
-        return any(
-            v.get("kal_ticker") == kal_ticker
-            for v in open_arbs.values()
-        )
-    except Exception:
-        return False  # fail open — don't block on file error
 
 
 def blacklist_candle(asset: str, candle_end_ts: int):
@@ -71,60 +45,6 @@ def _is_blacklisted(asset: str, candle_end_ts: int) -> bool:
             return False
         return True
 
-# ── Divergence history for collapse detection (Strategy #3) ──────────────────
-# Records blocked divergence readings per asset. When divergence has dropped
-# ≥DIV_COLLAPSE_THRESHOLD from its peak within DIV_COLLAPSE_WINDOW_SECS,
-# we allow entry at a reduced stake — the oracle gap is closing fast.
-_divergence_history: dict[str, list] = {}   # asset → [(timestamp, divergence)]
-_div_hist_lock = threading.Lock()
-
-# Tracks which (asset:candle_end_ts) pairs have already sent a collapse alert.
-_collapse_alerted: set[str] = set()
-
-
-def _record_and_check_collapse(asset: str, divergence: float) -> bool:
-    """Record a blocked divergence and check if a collapse has occurred.
-
-    Returns True if divergence has dropped ≥DIV_COLLAPSE_THRESHOLD from the
-    recent peak (within DIV_COLLAPSE_WINDOW_SECS seconds), signalling that
-    oracle convergence is in progress and middling risk is falling.
-    """
-    now = time.time()
-    cutoff = now - DIV_COLLAPSE_WINDOW_SECS
-
-    with _div_hist_lock:
-        hist = _divergence_history.setdefault(asset, [])
-        hist.append((now, divergence))
-        hist[:] = [(t, d) for t, d in hist if t >= cutoff]  # prune old entries
-
-        if len(hist) < 3:
-            return False  # need at least 3 readings before declaring a collapse
-
-        max_div = max(d for _, d in hist)
-        oracle_max = ORACLE_MAX_DIVERGENCE_USD.get(asset, float("inf"))
-        if max_div < oracle_max:
-            return False  # peak was never in blocked territory — not a convergence event
-
-        drop_pct = (max_div - divergence) / max_div if max_div > 0 else 0
-        # Matches original 51b88aa logic: ≥35% drop AND peak ≥1.5× current.
-        # Added DIV_COLLAPSE_MAX_GAP_RATIO check: the gap must have collapsed
-        # to within a reasonable multiple of the normal threshold to be safe.
-        is_collapse = (
-            drop_pct >= DIV_COLLAPSE_THRESHOLD
-            and max_div >= divergence * DIV_COLLAPSE_PEAK_FACTOR
-            and divergence <= oracle_max * DIV_COLLAPSE_MAX_GAP_RATIO
-        )
-
-        if is_collapse:
-            log.info(
-                "[DIV_COLLAPSE] %s: div $%.2f dropped %.0f%% from peak $%.2f "
-                "(≥%d%% required, peak/now=%.1f×) — allowing entry at $%.0f/leg",
-                asset, divergence, drop_pct * 100, max_div,
-                int(DIV_COLLAPSE_THRESHOLD * 100),
-                max_div / divergence if divergence > 0 else 0,
-                DIV_COLLAPSE_STAKE_USD,
-            )
-        return is_collapse
 
 
 # ── Chainlink oracle cache ────────────────────────────────────────────────────
@@ -394,54 +314,29 @@ def find_arb_windows(kalshi_markets: list[dict], pm_markets: list[dict]) -> list
             # BOTH sides lose ("middling"). Skip when divergence > threshold.
             kalshi_strike = km.get("floor_strike", 0)
             if not _check_oracle_divergence(km["asset"], kalshi_strike):
-                _cl, _ = _get_oracle_price(km["asset"])  # spot-first, cached
-                _divergence = abs(kalshi_strike - _cl) if _cl is not None else None
-
-                # Strategy #3: Divergence Collapse — allow entry at reduced stake
-                # when oracle gap has been rapidly shrinking (≥30% drop in 60s).
-                _is_collapse = (
-                    _divergence is not None
-                    and _record_and_check_collapse(km["asset"], _divergence)
-                )
-
-                if not _is_collapse:
-                    # Normal oracle block — log div_fade signal (dry-run) and skip.
-                    if _cl is not None:
-                        _min_left = min(km["minutes_left"], pm["minutes_left"])
-                        div_fade_logger.maybe_log_fade_signal(
-                            asset=km["asset"],
-                            kalshi_strike=kalshi_strike,
-                            cl_now=_cl,
-                            minutes_left=_min_left,
-                            candle_end_ts=km["candle_end_ts"],
-                            pm_up_price=price_feed.get_pm_price(pm.get("up_token_id")),
-                            pm_dn_price=price_feed.get_pm_price(pm.get("dn_token_id")),
-                            kal_ticker=km.get("ticker", ""),
-                            pm_up_token_id=pm.get("up_token_id", ""),
-                            pm_dn_token_id=pm.get("dn_token_id", ""),
-                        )
-                        # Also log paper signal for PM 5m market (parallel data collection)
-                        div_fade_5m.maybe_log_5m_signal(
-                            asset=km["asset"],
-                            kalshi_strike=kalshi_strike,
-                            cl_now=_cl,
-                            minutes_left_15m=_min_left,
-                        )
-                    continue
-                # Guard: skip if normal arb already filled this candle.
-                # Prevents double-entry when arb fills first, then divergence
-                # collapses on the same candle minutes later.
-                if _is_ticker_already_open(km.get("ticker", "")):
-                    log.debug(
-                        "[DIV_COLLAPSE] Skipping %s — already in open_arbs",
-                        km.get("ticker", "?"),
+                # Log div_fade signal (dry-run) then skip.
+                _cl, _ = _get_oracle_price(km["asset"])
+                if _cl is not None:
+                    _min_left = min(km["minutes_left"], pm["minutes_left"])
+                    div_fade_logger.maybe_log_fade_signal(
+                        asset=km["asset"],
+                        kalshi_strike=kalshi_strike,
+                        cl_now=_cl,
+                        minutes_left=_min_left,
+                        candle_end_ts=km["candle_end_ts"],
+                        pm_up_price=price_feed.get_pm_price(pm.get("up_token_id")),
+                        pm_dn_price=price_feed.get_pm_price(pm.get("dn_token_id")),
+                        kal_ticker=km.get("ticker", ""),
+                        pm_up_token_id=pm.get("up_token_id", ""),
+                        pm_dn_token_id=pm.get("dn_token_id", ""),
                     )
-                    continue
-
-                # Collapse detected — fall through to normal arb logic below,
-                # but windows will be tagged with entry_mode + stake_override_usd.
-            else:
-                _is_collapse = False
+                    div_fade_5m.maybe_log_5m_signal(
+                        asset=km["asset"],
+                        kalshi_strike=kalshi_strike,
+                        cl_now=_cl,
+                        minutes_left_15m=_min_left,
+                    )
+                continue
 
             # ── Dynamic candle movement check ─────────────────────────────
             # Snapshot CL price at candle open to separate two signals:
@@ -450,14 +345,8 @@ def find_arb_windows(kalshi_markets: list[dict], pm_markets: list[dict]) -> list
             #   min_move = max(divergence + margin, floor)
             # Tight oracles ($2 apart) + $10 margin → need $12 BTC move.
             # Wide oracles ($30 apart) + $10 margin → need $40 BTC move.
-            #
-            # SKIPPED for div_collapse entries: the collapse itself (oracle gap
-            # shrinking ≥35% in 60s) is the signal — CL_at_open was cached when
-            # divergence was large, so min_move ends up artificially high relative
-            # to the now-collapsed gap. Pre-flight price check + Kalshi depth gate
-            # are the correct downstream guards for collapse entries.
             _margin = CANDLE_MOVE_MARGIN.get(km["asset"])
-            if _margin is not None and kalshi_strike > 0 and not _is_collapse:
+            if _margin is not None and kalshi_strike > 0:
                 cl_price, _ = _get_oracle_price(km["asset"])
                 if cl_price is not None:
                     # Cache CL price at first observation of this candle
@@ -485,10 +374,6 @@ def find_arb_windows(kalshi_markets: list[dict], pm_markets: list[dict]) -> list
                     log.info(
                         "Candle move OK %s: $%.2f (min $%.2f, div=$%.2f)",
                         km["asset"], candle_move, min_move, divergence)
-            elif _is_collapse:
-                log.info(
-                    "Candle flat check SKIPPED (div_collapse mode) — %s",
-                    km["asset"])
 
             # Get live prices
             k_prices = price_feed.get_kalshi_price(km["ticker"])
@@ -543,28 +428,6 @@ def find_arb_windows(kalshi_markets: list[dict], pm_markets: list[dict]) -> list
                     "kalshi_market":   km,
                     "pm_market":       pm,
                 }
-
-                if _is_collapse:
-                    _window["entry_mode"]       = "div_collapse"
-                    _window["stake_override_usd"] = DIV_COLLAPSE_STAKE_USD
-                    # Alert once per candle when a live collapse window is found
-                    _alert_key = f"{km['asset']}:{km['candle_end_ts']}"
-                    if _alert_key not in _collapse_alerted:
-                        _collapse_alerted.add(_alert_key)
-                        try:
-                            import notifier as _ntf_col
-                            _ntf_col._send(
-                                f"⚡ <b>DIV COLLAPSE WINDOW</b> — {km['asset']}\n"
-                                f"Oracle gap shrinking ≥{int(DIV_COLLAPSE_THRESHOLD*100)}% "
-                                f"in {DIV_COLLAPSE_WINDOW_SECS}s\n"
-                                f"Arb found: PM {pm_side} @ {pm_price:.0f}¢ + "
-                                f"Kal {kal_side} @ {kal_price:.0f}¢ = {combined:.0f}¢\n"
-                                f"Stake: <b>${DIV_COLLAPSE_STAKE_USD:.0f}/leg</b> "
-                                f"(vs normal ${150:.0f})\n"
-                                f"{min(km['minutes_left'], pm['minutes_left']):.1f}m left"
-                            )
-                        except Exception as _ntf_e:
-                            log.warning("Collapse alert failed: %s", _ntf_e)
 
                 windows.append(_window)
 

@@ -964,17 +964,9 @@ async def execute_arb(window: dict, live: bool = True, directional_fallback: boo
     _MIN_SCALE     = 0.5    # floor at 0.5× (never go below half stake)
     _spread_scale  = min(max(_spread_cents / _TARGET_SPREAD, _MIN_SCALE), _MAX_SCALE)
 
-    # Stake override: non-standard entry modes (e.g. div_collapse) use a
-    # fixed reduced stake and skip spread scaling for risk control.
-    _base_stake = window.get("stake_override_usd", LIVE_STAKE_USD)
-    _entry_mode = window.get("entry_mode", "normal")
-    if _entry_mode != "normal":
-        effective_stake = _base_stake   # fixed — no scaling
-        log.info("Entry mode=%s → fixed stake=$%.2f (no spread scaling)", _entry_mode, effective_stake)
-    else:
-        effective_stake = _base_stake * _spread_scale
-        log.info("Spread=%.1f¢ → stake_scale=%.2f× → base_stake=$%.2f",
-                 _spread_cents, _spread_scale, effective_stake)
+    effective_stake = LIVE_STAKE_USD * _spread_scale
+    log.info("Spread=%.1f¢ → stake_scale=%.2f× → base_stake=$%.2f",
+             _spread_cents, _spread_scale, effective_stake)
 
     # ── Parallel pre-checks ─────────────────────────────────────────────────
     # Kalshi balance, PM balance (60s cached), position check, Kalshi live ask,
@@ -1112,21 +1104,24 @@ async def execute_arb(window: dict, live: bool = True, directional_fallback: boo
     # PM pre-flight check (midpoint fetched in parallel)
     if _pm_mid_pre is None:
         log.warning("PM pre-flight midpoint failed — aborting")
-        return {"success": False, "error": "PM pre-flight check failed"}
+        return {"success": False, "error": "PM pre-flight check failed", "skip_cooldown": True}
     pm_live_pre = _pm_mid_pre
-    # div_collapse: oracle gap has already shrunk — 8¢ NO buf is overkill and
-    # kills valid signals (e.g. ETH ask 33¢ + 8¢ = 41¢ → PM 59¢ → 100¢ exact reject).
-    # Use 4¢ NO buf for collapse entries; standard 8¢ for all others.
-    _pf_kal_buf = 3 if kal_side.upper() == "YES" else (4 if _entry_mode == "div_collapse" else 8)
+    # YES buffer 3¢: taker fill, executes in ~200ms after pre-flight.
+    # NO buffer 4¢: maker/taker fill; live ask already reflects current slippage,
+    # just need a small cushion for the ~600ms between pre-flight and Kalshi order.
+    # (Was 8¢ — caused double-counting since live ask already absorbs market slippage.)
+    _pf_kal_buf = 3 if kal_side.upper() == "YES" else 4
     live_combined_buffered = pm_live_pre + kal_price + _pf_kal_buf
     if live_combined_buffered >= 100:
         log.warning("Pre-flight FAILED: live combined %.1f¢ (PM %.1f¢ + Kal %d¢ + %d¢ buf) ≥ 100¢",
                     live_combined_buffered, pm_live_pre, int(kal_price), _pf_kal_buf)
         return {"success": False, "pm_filled": False, "kal_filled": False,
+                "skip_cooldown": True,
                 "error": f"No profit after buffer: combined {live_combined_buffered:.1f}¢"}
     if pm_live_pre < MIN_SIDE_CENTS or pm_live_pre > MAX_SIDE_CENTS:
         log.warning("Pre-flight FAILED: PM live %.1f¢ outside valid range", pm_live_pre)
         return {"success": False, "pm_filled": False, "kal_filled": False,
+                "skip_cooldown": True,
                 "error": f"PM {pm_live_pre:.1f}¢ out of range"}
     log.info("Pre-flight ✓ — PM %.1f¢ + Kal %d¢ + %d¢ buf = %.1f¢ (%.1f¢ net profit)",
              pm_live_pre, int(kal_price), _pf_kal_buf, live_combined_buffered, 100 - live_combined_buffered)
