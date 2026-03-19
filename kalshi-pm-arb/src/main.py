@@ -29,7 +29,9 @@ import div_fade_monitor
 from config import (
     LIVE_TRADING, PM_FUNDER, POLL_INTERVAL_SECS, POLL_INTERVAL_OVERNIGHT_SECS, MARKET_REFRESH_SECS,
     ASSETS, MAX_DIRECTIONAL_USD, DIRECTIONAL_MAX_PER_SIDE,
+    MIN_ARB_CENTS, MAX_PAIR_COST,
 )
+from fee_regime import FeeRegime
 
 REDEEM_INTERVAL_SECS = 300  # redeem every 5 minutes
 
@@ -211,6 +213,16 @@ async def main():
     log.info("Cross-Platform Candle Arb Bot — %s MODE", mode)
     log.info("Assets: %s", ASSETS)
     log.info("=" * 60)
+
+    # ── Fee regime validation ──────────────────────────────────────────────────
+    log.info(FeeRegime.summary())
+    _fee_warnings = FeeRegime.validate(MIN_ARB_CENTS, MAX_PAIR_COST, mode="taker")
+    if _fee_warnings:
+        for w in _fee_warnings:
+            log.critical("[FEE REGIME] ⚠️ %s", w)
+        log.critical("[FEE REGIME] Config thresholds may be stale — review fee_regime.py")
+    else:
+        log.info("[FEE REGIME] ✅ Config thresholds consistent with fee assumptions")
 
     if LIVE_TRADING:
         log.info("Running pre-flight checks...")

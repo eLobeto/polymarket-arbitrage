@@ -1,0 +1,9 @@
+config/.env
+config/kalshi_private.pem
+logs/*.log
+logs/*.pid
+src/cooldowns.json
+__pycache__/
+*.pyc
+.venv/
+venv/

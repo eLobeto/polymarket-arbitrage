@@ -37,11 +37,20 @@ def both_filled(result: dict, window: dict):
     pm_usd    = result.get("pm_usd", pm_p / 100 * contracts)
     kal_usd   = result.get("kal_usd", kal_p / 100 * contracts)
     combined  = pm_p + kal_p
+
+    # Risk context
+    dz      = window.get("dead_zone")
+    dz_str  = f"${dz:.0f}" if dz is not None and dz >= 0 else ("n/a" if dz == -1.0 else "0")
+    div     = window.get("oracle_divergence", 0)
+    allow   = window.get("oracle_allowed", False)
+    warning = " ⚠️" if (allow or div > 20) else ""
+
     log.info("Sending fill alert: %s %s combined=%.1f¢", asset, tf, combined)
     _send(
         f"🔄 <b>ARB ENTERED</b> — {asset} {tf}\n"
         f"PM {pm_side} @ {pm_p:.1f}¢ (${pm_usd:.2f}) + Kal {kal_side} @ {kal_p:.1f}¢ (${kal_usd:.2f})\n"
         f"Combined: {combined:.1f}¢ | Contracts: {contracts}\n"
+        f"Dead zone: {dz_str} | Oracle div: ${div:.0f}{warning}\n"
         f"<i>Awaiting settlement…</i>"
     )
 

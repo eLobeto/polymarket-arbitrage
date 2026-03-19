@@ -49,6 +49,25 @@ ORACLE_MAX_DIVERGENCE_USD = {
     "XRP": 0.005,   # XRP ~$2.3 → $0.005 is ~0.22%
 }
 
+# ── Dead zone thresholds (direction-level middle risk guard) ──────────────────
+# The dead zone is |Kalshi_strike - PM_candle_open| — the price range where
+# BOTH legs lose (one settles just below/above its own strike).
+# If dead_zone > threshold → skip that direction.
+# Applied PER DIRECTION within a pair, not to the whole market.
+DEAD_ZONE_MAX_USD = {
+    "BTC": 25.0,   # same scale as ORACLE_MAX_DIVERGENCE_USD by design
+    "ETH": 5.0,
+}
+
+# ── Oracle override ceiling (zero-dead-zone directions only) ─────────────────
+# When oracle_divergence > ORACLE_MAX_DIVERGENCE_USD but a direction has
+# dead_zone == 0, the direction is still allowed IF divergence is below this
+# ceiling. Above this ceiling it's extreme enough to block even "safe" directions.
+ORACLE_ALLOW_ZERO_DZ_USD = {
+    "BTC": 75.0,   # allow zero-DZ direction up to $75 total CF/CL divergence
+    "ETH": 20.0,
+}
+
 # ── Minimum candle movement (dynamic) ────────────────────────────────────────
 # min_move = observed_oracle_divergence + CANDLE_MOVE_MARGIN, floored at
 # CANDLE_MOVE_FLOOR. Oracle divergence is measured at candle open by caching
