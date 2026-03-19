@@ -101,7 +101,7 @@ DIV_FADE_LIVE_SIGNALS: dict[str, bool] = {
     "ETH_15m_PM_UP": False,
     "ETH_15m_PM_DN": False,
     "BTC_5m_PM_UP":  False,
-    "BTC_5m_PM_DN":  False,
+    "BTC_5m_PM_DN":  True,   # ✅ LIVE Mar 19 — 29W/20L 59% WR (67% after dead-band filter)
     "ETH_5m_PM_UP":  False,
     "ETH_5m_PM_DN":  False,
 }
