@@ -87,10 +87,26 @@ CANDLE_MOVE_FLOOR = {
 # Fires a directional PM bet when CF Benchmarks leads Chainlink by > threshold,
 # betting that Chainlink reprices within the 15-minute candle window.
 DIV_FADE_ENABLED         = True
-DIV_FADE_LIVE_ASSETS     = []        # paper-only until PM-verified WR validated
 DIV_FADE_STAKE_USD       = 100.0     # $100 cap per trade
 DIV_FADE_MAX_PRICE_CENTS = 60.0      # skip if PM already repriced above 60¢
 DIV_FADE_MIN_PRICE_CENTS = 45.0      # skip if PM price < 45¢ (kills low-edge signals)
+
+# ── Per-signal go-live controls ───────────────────────────────────────────────
+# Each key is "ASSET_TF_SIGNAL". Set True only after meeting go-live thresholds.
+# Go-live threshold: DIV_FADE_GO_LIVE_MIN_RESOLVED signals resolved at > DIV_FADE_GO_LIVE_MIN_WR.
+# All False = paper-only. Flip individual signals when data validates edge.
+DIV_FADE_LIVE_SIGNALS: dict[str, bool] = {
+    "BTC_15m_PM_UP": False,
+    "BTC_15m_PM_DN": False,
+    "ETH_15m_PM_UP": False,
+    "ETH_15m_PM_DN": False,
+    "BTC_5m_PM_UP":  False,
+    "BTC_5m_PM_DN":  False,
+    "ETH_5m_PM_UP":  False,
+    "ETH_5m_PM_DN":  False,
+}
+DIV_FADE_GO_LIVE_MIN_RESOLVED = 50    # minimum resolved outcomes required
+DIV_FADE_GO_LIVE_MIN_WR       = 0.50  # minimum win rate required
 
 # (Divergence Collapse Entry / Strategy #3 removed — see git history)
 

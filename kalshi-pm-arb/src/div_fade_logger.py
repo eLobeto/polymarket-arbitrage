@@ -67,11 +67,12 @@ _SIM_STAKE_USD = 150.0
 _OB_PRICE_TOLERANCE = 0.15   # 15% above signal price
 
 
-def _should_trade_live(asset: str) -> bool:
-    """Return True if this asset is configured for live div fade trading."""
+def _should_trade_live(asset: str, signal: str) -> bool:
+    """Return True if this (asset, signal) combo is configured for live 15m trading."""
     try:
-        from config import DIV_FADE_ENABLED, DIV_FADE_LIVE_ASSETS
-        return DIV_FADE_ENABLED and asset in DIV_FADE_LIVE_ASSETS
+        from config import DIV_FADE_ENABLED, DIV_FADE_LIVE_SIGNALS
+        key = f"{asset}_15m_{signal}"
+        return DIV_FADE_ENABLED and DIV_FADE_LIVE_SIGNALS.get(key, False)
     except Exception:
         return False
 
@@ -419,7 +420,7 @@ def maybe_log_fade_signal(
         log.info(
             "[DIV_FADE] 📋 %s %s %s | CF=$%.2f CL=$%.2f (div=%+.2f) "
             "| PM@%.1f¢ | sim +$%.2f/-$%.2f | %s | %.1fm left",
-            "LIVE" if (_should_trade_live(asset) and signal == "PM_UP") else "DRY-RUN",
+            "LIVE" if _should_trade_live(asset, signal) else "DRY-RUN",
             asset, signal,
             kalshi_strike, cl_now, divergence,
             pm_price, would_profit, would_loss,
@@ -428,8 +429,8 @@ def maybe_log_fade_signal(
     except Exception as exc:
         log.warning("[DIV_FADE] Failed to write signal: %s", exc)
 
-    # ── Live execution — PM_UP only (PM_DN is a reversal bet with no structural edge)
-    if _should_trade_live(asset) and token_id and signal == "PM_UP":
+    # ── Live execution — fires for any signal configured in DIV_FADE_LIVE_SIGNALS
+    if _should_trade_live(asset, signal) and token_id:
         _execute_live_fade(
             token_id=token_id,
             signal=signal,

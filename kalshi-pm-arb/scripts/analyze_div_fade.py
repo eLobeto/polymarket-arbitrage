@@ -293,6 +293,34 @@ def main():
 
     print()
 
+    # ── Go-live readiness (15m) ───────────────────────────────────────────────
+    try:
+        from config import DIV_FADE_GO_LIVE_MIN_RESOLVED, DIV_FADE_GO_LIVE_MIN_WR, DIV_FADE_LIVE_SIGNALS
+        print(f"\n  {'─'*56}")
+        print(f"  GO-LIVE READINESS  (threshold: {DIV_FADE_GO_LIVE_MIN_RESOLVED}+ resolved @ >{DIV_FADE_GO_LIVE_MIN_WR*100:.0f}% WR)")
+        print(f"  {'─'*56}")
+        for asset_name in ["BTC", "ETH"]:
+            for sig_type in ["PM_UP", "PM_DN"]:
+                key = f"{asset_name}_15m_{sig_type}"
+                st = [s for s in resolved if s["asset"] == asset_name and s.get("signal") == sig_type]
+                sw = [s for s in st if s["outcome"] == "win"]
+                n  = len(st)
+                wr = len(sw) / n if n else 0
+                is_live = DIV_FADE_LIVE_SIGNALS.get(key, False)
+                needs_n = max(0, DIV_FADE_GO_LIVE_MIN_RESOLVED - n)
+                meets_wr = wr >= DIV_FADE_GO_LIVE_MIN_WR
+                if is_live:
+                    status = "🟢 LIVE"
+                elif n >= DIV_FADE_GO_LIVE_MIN_RESOLVED and meets_wr:
+                    status = "✅ READY (flip in config)"
+                elif n >= DIV_FADE_GO_LIVE_MIN_RESOLVED and not meets_wr:
+                    status = f"❌ WR too low ({wr*100:.0f}%)"
+                else:
+                    status = f"⏳ need {needs_n} more ({wr*100:.0f}% WR so far)"
+                print(f"  {key:25s}: {len(sw):2d}W/{n:2d}R  {status}")
+    except ImportError:
+        pass
+
     # ── 5m signals summary ───────────────────────────────────────────────────
     if SIGNALS_LOG_5M.exists():
         sigs_5m = []
@@ -345,6 +373,34 @@ def main():
                     sp, sl = _sim_pnl(st)
                     wr = len(sw) / len(st) * 100
                     print(f"    {asset_name} {sig_type}: {len(sw)}/{len(st)} = {wr:.0f}%  sim ${sp-sl:+.2f}")
+
+            # Go-live readiness (5m)
+            try:
+                from config import DIV_FADE_GO_LIVE_MIN_RESOLVED, DIV_FADE_GO_LIVE_MIN_WR, DIV_FADE_LIVE_SIGNALS
+                print(f"\n  {'─'*56}")
+                print(f"  GO-LIVE READINESS 5m  (threshold: {DIV_FADE_GO_LIVE_MIN_RESOLVED}+ resolved @ >{DIV_FADE_GO_LIVE_MIN_WR*100:.0f}% WR)")
+                print(f"  {'─'*56}")
+                for asset_name in ["BTC", "ETH"]:
+                    for sig_type in ["PM_UP", "PM_DN"]:
+                        key = f"{asset_name}_5m_{sig_type}"
+                        st  = [s for s in res_5m if s["asset"] == asset_name and s.get("signal") == sig_type]
+                        sw  = [s for s in st if s["outcome"] == "win"]
+                        n   = len(st)
+                        wr  = len(sw) / n if n else 0
+                        is_live = DIV_FADE_LIVE_SIGNALS.get(key, False)
+                        needs_n = max(0, DIV_FADE_GO_LIVE_MIN_RESOLVED - n)
+                        meets_wr = wr >= DIV_FADE_GO_LIVE_MIN_WR
+                        if is_live:
+                            status = "🟢 LIVE"
+                        elif n >= DIV_FADE_GO_LIVE_MIN_RESOLVED and meets_wr:
+                            status = "✅ READY (flip in config)"
+                        elif n >= DIV_FADE_GO_LIVE_MIN_RESOLVED and not meets_wr:
+                            status = f"❌ WR too low ({wr*100:.0f}%)"
+                        else:
+                            status = f"⏳ need {needs_n} more ({wr*100:.0f}% WR so far)"
+                        print(f"  {key:25s}: {len(sw):2d}W/{n:2d}R  {status}")
+            except ImportError:
+                pass
             print(f"{'='*60}")
 
     # ── Live positions summary ────────────────────────────────────────────────

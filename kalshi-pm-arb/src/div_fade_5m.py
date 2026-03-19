@@ -26,6 +26,8 @@ from config import (
     ORACLE_MAX_DIVERGENCE_USD,
     DIV_FADE_STAKE_USD,
     DIV_FADE_MIN_PRICE_CENTS,
+    DIV_FADE_LIVE_SIGNALS,
+    DIV_FADE_ENABLED,
 )
 
 log = logging.getLogger("div_fade_5m")
@@ -40,6 +42,12 @@ _PM_OB_URL     = "https://clob.polymarket.com/book"
 _CANDLE_SECS   = 300        # 5 minutes
 _MIN_SECS_LEFT = 60         # skip if < 60s remaining in candle
 _OB_TOLERANCE  = 0.15       # 15% price tolerance for OB depth check
+
+def _should_trade_live(asset: str, signal: str) -> bool:
+    """Return True if this (asset, signal) combo is configured for live 5m trading."""
+    key = f"{asset}_5m_{signal}"
+    return DIV_FADE_ENABLED and DIV_FADE_LIVE_SIGNALS.get(key, False)
+
 
 # ── Deduplication ─────────────────────────────────────────────────────────────
 _logged_candles: set[str] = set()
@@ -284,18 +292,36 @@ def maybe_log_5m_signal(
         with _SIGNALS_LOG.open("a") as f:
             f.write(json.dumps(entry) + "\n")
 
+        mode = "LIVE" if _should_trade_live(asset, signal) else "PAPER"
         ob_note = (
             f"ob=${ob['ob_fillable_usd']:.0f}/{_SIM_STAKE_USD:.0f} ({ob['ob_depth_shares']:.0f}sh)"
             if ob["ob_fillable_usd"] is not None
             else f"ob_err={ob['ob_error']}"
         )
         log.info(
-            "[DIV_FADE_5M] 📋 PAPER %s %s | CF=$%.2f CL=$%.2f (div=%+.2f)"
+            "[DIV_FADE_5M] 📋 %s %s %s | CF=$%.2f CL=$%.2f (div=%+.2f)"
             " | PM@%.1f¢ | sim +$%.2f/-$%.2f | %s | %.1fm left (5m candle)",
-            asset, signal,
+            mode, asset, signal,
             kalshi_strike, cl_now, divergence,
             pm_price, would_profit, would_loss,
             ob_note, minutes_left_5m,
         )
     except Exception as exc:
         log.warning("[DIV_FADE_5M] Failed to write signal: %s", exc)
+        return
+
+    # ── Live execution (when signal configured live in DIV_FADE_LIVE_SIGNALS) ─
+    if _should_trade_live(asset, signal) and token_id:
+        try:
+            from div_fade_logger import _execute_live_fade
+            _execute_live_fade(
+                token_id=token_id,
+                signal=signal,
+                signal_price_cents=pm_price,
+                asset=asset,
+                candle_end_ts=ts + _CANDLE_SECS,
+                kal_ticker="",   # no Kalshi ticker for 5m signals
+                divergence=divergence,
+            )
+        except Exception as exc:
+            log.error("[DIV_FADE_5M] Live execution failed: %s", exc)
