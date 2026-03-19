@@ -273,7 +273,9 @@ def resolve_open_arb(condition_id: str):
 
 
 def log_arb_outcome(condition_id: str, winning_side: str, value_usd: float,
-                    pm_loss_usd: float = 0.0, kal_loss_usd: float = 0.0):
+                    pm_loss_usd: float = 0.0, kal_loss_usd: float = 0.0,
+                    oracle_divergence_at_settle: float | None = None,
+                    spot_at_settle: float | None = None):
     """Log which side won a resolved arb trade.
 
     winning_side: "pm"      — PM tokens redeemed (PM side was correct)
@@ -297,6 +299,9 @@ def log_arb_outcome(condition_id: str, winning_side: str, value_usd: float,
             if _original_profit and _original_profit > 0:
                 kalshi_fee = FeeRegime.kalshi_fee_usd(_original_profit, mode="taker")
 
+        # Pull entry-time oracle snapshot from the original arb_fill record
+        # so the outcome record can self-join for training without external lookups.
+        _fill_rec = _lookup_arb_fill_record(condition_id) or {}
         record = {
             "ts":              _now_iso(),
             "type":            "arb_outcome",
@@ -308,6 +313,20 @@ def log_arb_outcome(condition_id: str, winning_side: str, value_usd: float,
             "winning_side":    winning_side,
             "value_usd":       round(value_usd, 4),
             "kalshi_fee":      kalshi_fee,
+            # ── Entry-time oracle snapshot (from arb_fill) ─────────────────
+            # Joined here so the outcome record is self-contained for analysis.
+            "oracle_divergence_at_entry": _fill_rec.get("oracle_divergence"),
+            "oracle_velocity_at_entry":   _fill_rec.get("oracle_velocity"),
+            "dead_zone_at_entry":         _fill_rec.get("dead_zone"),
+            "oracle_allowed_at_entry":    _fill_rec.get("oracle_allowed"),
+            # ── Settlement-time oracle snapshot (passed by redeemer) ────────
+            # Divergence at the moment of settlement. If entry_div was $20 and
+            # settle_div is $5, the oracle converged = low-risk entry confirmed.
+            # If settle_div stayed high, that's a middling fingerprint feature.
+            "oracle_divergence_at_settle": (
+                round(oracle_divergence_at_settle, 2) if oracle_divergence_at_settle is not None else None
+            ),
+            "spot_at_settle": spot_at_settle,
         }
         # For middled trades, add the loss breakdown
         if winning_side == "middled":

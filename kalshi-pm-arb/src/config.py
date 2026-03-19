@@ -100,6 +100,15 @@ DIV_FADE_MIN_PRICE_CENTS = 45.0      # skip if PM price < 45¢ (kills low-edge s
 # burning money on repeated buy/sell slippage.
 ROLLBACK_BLACKLIST_SECS = 900  # 15 min — effectively the rest of the candle
 
+# ── Correlated entry cap (Risk #5) ────────────────────────────────────────────
+# BTC and ETH signals are direction-neutral per market but driven by the same
+# macro move. If both assets fire an arb within this window, only the first
+# (highest-profit) entry is taken. The second is blocked to cap worst-case
+# capital deployed into a single vol spike.
+# Time-windowed (not a hard global cap) — independent signals that happen to
+# fire 60+ seconds apart are treated as uncorrelated and both allowed.
+CORRELATED_ENTRY_WINDOW_SECS = 30
+
 # ── Kalshi maker orders ───────────────────────────────────────────────────────
 KALSHI_MAKER_MODE              = True
 MAKER_CANCEL_MINS_BEFORE_CLOSE = 5.0

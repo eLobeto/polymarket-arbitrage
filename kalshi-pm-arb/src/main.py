@@ -29,7 +29,7 @@ import div_fade_monitor
 from config import (
     LIVE_TRADING, PM_FUNDER, POLL_INTERVAL_SECS, POLL_INTERVAL_OVERNIGHT_SECS, MARKET_REFRESH_SECS,
     ASSETS, MAX_DIRECTIONAL_USD, DIRECTIONAL_MAX_PER_SIDE,
-    MIN_ARB_CENTS, MAX_PAIR_COST,
+    MIN_ARB_CENTS, MAX_PAIR_COST, CORRELATED_ENTRY_WINDOW_SECS,
 )
 from fee_regime import FeeRegime
 
@@ -247,6 +247,9 @@ async def main():
     cycle          = 0
     directional_positions: dict[str, dict] = _load_directional_positions()
     direction_mgr = DirectionManager(sell_fn=executor._sell_pm_fok)
+    # Correlated entry cap: track last fill timestamp per asset.
+    # Key: asset ("BTC"/"ETH") → epoch of last successful arb entry.
+    _last_arb_entry_ts: dict[str, float] = {}
 
     while True:
         now = time.time()
@@ -337,6 +340,24 @@ async def main():
                           expiry - now)
                 continue
 
+            # ── Correlated entry cap (Risk #5) ────────────────────────────
+            # If a DIFFERENT asset was filled within CORRELATED_ENTRY_WINDOW_SECS,
+            # skip this window. Windows are sorted profit-desc so the first window
+            # that cleared all checks is always the best opportunity — subsequent
+            # assets are blocked for the duration of the window to prevent
+            # doubling into the same macro move.
+            _corr_blocked = False
+            for _other_asset, _other_ts in _last_arb_entry_ts.items():
+                if _other_asset != asset and (now - _other_ts) < CORRELATED_ENTRY_WINDOW_SECS:
+                    log.info(
+                        "[CORR CAP] Skipping %s — %s was entered %.0fs ago (window=%ds)",
+                        asset, _other_asset, now - _other_ts, CORRELATED_ENTRY_WINDOW_SECS,
+                    )
+                    _corr_blocked = True
+                    break
+            if _corr_blocked:
+                continue
+
             log.info("[ARB] %s %s: PM %s @ %.1f¢ + Kalshi %s @ %.1f¢ = %.1f¢ combined (profit %.1f¢)",
                      asset, window["timeframe"],
                      window["pm_side"],  window["pm_price"],
@@ -395,6 +416,7 @@ async def main():
                 log.info("[FILL] Both legs filled! Locked profit: $%.3f", result["profit_locked"])
                 notifier.both_filled(result, window)
                 trade_logger.log_arb_fill(result, window)
+                _last_arb_entry_ts[asset] = now  # correlated entry cap timestamp
                 directional_positions.pop(window.get("pm_token_id", ""), None)
                 _save_directional_positions(directional_positions)
                 if result.get("excess_pm_result"):

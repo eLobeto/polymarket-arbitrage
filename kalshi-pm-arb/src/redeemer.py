@@ -15,6 +15,49 @@ import requests
 import trade_logger as _tl
 import notifier as _ntf
 
+
+def _get_settle_oracle_snapshot(asset: str, kal_ticker: str) -> tuple[float | None, float | None]:
+    """
+    Capture oracle divergence at settlement time for middling fingerprint analysis.
+
+    Returns (oracle_divergence_usd, spot_price) where:
+      - oracle_divergence_usd = abs(CF_Benchmarks_strike - Binance_spot)
+      - spot_price = current Binance spot (used to confirm which oracle moved)
+
+    Both may be None if feeds are unavailable.
+    """
+    try:
+        import matcher as _m
+        # Get current Binance spot (cached, fast)
+        spot, _src = _m._get_oracle_price(asset)
+        if spot is None:
+            return None, None
+
+        # Get Kalshi floor_strike from settlements API — the CF Benchmarks
+        # strike that actually settled this contract.
+        # Fall back to looking it up from the open_arbs fill record.
+        kal_strike = None
+        try:
+            from balance_monitor import signed_headers, KALSHI_BASE_URL
+            r = requests.get(
+                f"{KALSHI_BASE_URL}/portfolio/settlements?limit=20",
+                headers=signed_headers("GET", f"/trade-api/v2/portfolio/settlements?limit=20"),
+                timeout=10,
+            )
+            if r.ok:
+                for s in r.json().get("settlements", []):
+                    if s.get("ticker") == kal_ticker:
+                        kal_strike = float(s.get("floor_strike", 0))
+                        break
+        except Exception:
+            pass
+
+        div = abs(kal_strike - spot) if kal_strike else None
+        return div, spot
+    except Exception as e:
+        log.debug("Settle oracle snapshot failed for %s: %s", asset, e)
+        return None, None
+
 log = logging.getLogger("REDEEMER")
 
 _CTF_ADDRESS  = "0x4D97DCd97eC945f40cF65F87097ACe5EA0476045"
@@ -131,9 +174,14 @@ def redeem_winning_positions() -> float:
                             # Kalshi also lost → MIDDLED (oracle divergence)
                             pm_loss = float(original.get("pm_cost_usd", 0))
                             kal_loss = float(original.get("kal_cost_usd", 0))
+                            _div_settle, _spot_settle = _get_settle_oracle_snapshot(
+                                entry.get("asset", ""), kal_ticker
+                            )
                             _tl.log_arb_outcome(cid, "middled", 0.0,
                                                 pm_loss_usd=pm_loss,
-                                                kal_loss_usd=kal_loss)
+                                                kal_loss_usd=kal_loss,
+                                                oracle_divergence_at_settle=_div_settle,
+                                                spot_at_settle=_spot_settle)
                             _ntf.arb_middled(
                                 asset=entry.get("asset", "?"),
                                 tf=entry.get("tf", "15m"),
@@ -148,7 +196,12 @@ def redeem_winning_positions() -> float:
                     _fill_profit = _tl._lookup_arb_fill_profit(cid)
                     from fee_regime import FeeRegime
                     _kalshi_fee = FeeRegime.kalshi_fee_usd(_fill_profit, mode="taker") if _fill_profit > 0 else 0.0
-                    _tl.log_arb_outcome(cid, "kalshi", 0.0)
+                    _div_settle_kal, _spot_settle_kal = _get_settle_oracle_snapshot(
+                        entry.get("asset", ""), kal_ticker
+                    )
+                    _tl.log_arb_outcome(cid, "kalshi", 0.0,
+                                        oracle_divergence_at_settle=_div_settle_kal,
+                                        spot_at_settle=_spot_settle_kal)
                     try:
                         _net_profit = FeeRegime.net_profit_usd(_fill_profit, mode="taker") if _fill_profit > 0 else 0.0
                         _ntf.arb_won(
@@ -257,7 +310,12 @@ def redeem_winning_positions() -> float:
                 try:
                     # Look up original fill to calculate actual profit
                     _orig = _tl._lookup_arb_fill_record(cond_id)
-                    _tl.log_arb_outcome(cond_id, "pm", val)
+                    _asset_pm = (_orig.get("asset", "") if _orig else "") or p.get("asset", "")[:3].upper()
+                    _kal_tk_pm = (_orig.get("kal_ticker", "") if _orig else "")
+                    _div_settle_pm, _spot_settle_pm = _get_settle_oracle_snapshot(_asset_pm, _kal_tk_pm)
+                    _tl.log_arb_outcome(cond_id, "pm", val,
+                                        oracle_divergence_at_settle=_div_settle_pm,
+                                        spot_at_settle=_spot_settle_pm)
                     if _orig:
                         _total_cost = float(_orig.get("total_cost_usd", 0))
                         _real_profit = val - _total_cost
