@@ -169,6 +169,48 @@ def _fetch_ob_depth(token_id: str, signal_price_cents: float) -> dict:
         return empty
 
 
+def lookup_div_fade_position(token_id: str) -> dict | None:
+    """Return the div_fade_positions.jsonl entry matching token_id, or None."""
+    pos_log = Path(__file__).parent.parent / "logs" / "div_fade_positions.jsonl"
+    if not pos_log.exists():
+        return None
+    try:
+        with pos_log.open() as f:
+            for line in f:
+                try:
+                    entry = json.loads(line)
+                    if entry.get("token_id") == token_id:
+                        return entry
+                except Exception:
+                    pass
+    except Exception:
+        pass
+    return None
+
+
+def update_div_fade_outcome(token_id: str, outcome: str, profit_usd: float) -> None:
+    """Rewrite div_fade_positions.jsonl, updating outcome + profit_usd for token_id."""
+    pos_log = Path(__file__).parent.parent / "logs" / "div_fade_positions.jsonl"
+    if not pos_log.exists():
+        return
+    try:
+        lines = pos_log.read_text().splitlines()
+        updated = []
+        for line in lines:
+            try:
+                entry = json.loads(line)
+                if entry.get("token_id") == token_id:
+                    entry["outcome"] = outcome
+                    entry["profit_usd"] = round(profit_usd, 4)
+                    line = json.dumps(entry)
+            except Exception:
+                pass
+            updated.append(line)
+        pos_log.write_text("\n".join(updated) + "\n")
+    except Exception as e:
+        log.warning("[DIV_FADE] Failed to update outcome for token %s: %s", token_id[:16], e)
+
+
 def _execute_live_fade(
     token_id: str,
     signal: str,

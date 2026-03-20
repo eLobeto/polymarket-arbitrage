@@ -67,6 +67,17 @@ def arb_won(asset: str, tf: str, winning_side: str, profit_usd: float,
     )
 
 
+def div_fade_won(asset: str, signal: str, shares: float, fill_price_cents: float,
+                 cost_usd: float, profit_usd: float):
+    """Alert when a live div fade position is redeemed as a win."""
+    roi_pct = (profit_usd / cost_usd * 100) if cost_usd > 0 else 0.0
+    _send(
+        f"🎯 <b>DIV FADE WIN</b> — {asset} 5m {signal}\n"
+        f"{shares:.1f} shares @ {fill_price_cents:.1f}¢ fill\n"
+        f"Profit: <b>+${profit_usd:.2f}</b> ({roi_pct:.0f}% ROI)"
+    )
+
+
 def arb_middled(asset: str, tf: str, pm_loss: float, kal_loss: float,
                 kal_ticker: str = ""):
     """Alert when an arb is middled (both sides lost)."""

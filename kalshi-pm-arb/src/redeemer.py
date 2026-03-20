@@ -328,7 +328,34 @@ def redeem_winning_positions() -> float:
                             profit_usd=_real_profit,
                         )
                     else:
-                        log.warning("[REDEEM] No fill record for cond=%s — alert skipped", cond_id[:16])
+                        # Check if this is a div fade position (separate positions log)
+                        _pm_token_id = p.get("asset", "")
+                        try:
+                            from div_fade_logger import lookup_div_fade_position, update_div_fade_outcome
+                            _fade_pos = lookup_div_fade_position(_pm_token_id)
+                            if _fade_pos:
+                                _fade_cost   = float(_fade_pos.get("cost_usd", 0))
+                                _fade_profit = round(val - _fade_cost, 4)
+                                _fade_shares = float(_fade_pos.get("shares", 0))
+                                _fade_fill   = float(_fade_pos.get("fill_price_cents", 0))
+                                _fade_asset  = _fade_pos.get("asset", "?")
+                                _fade_signal = _fade_pos.get("signal", "?")
+                                update_div_fade_outcome(_pm_token_id, "win", _fade_profit)
+                                _ntf.div_fade_won(
+                                    asset=_fade_asset,
+                                    signal=_fade_signal,
+                                    shares=_fade_shares,
+                                    fill_price_cents=_fade_fill,
+                                    cost_usd=_fade_cost,
+                                    profit_usd=_fade_profit,
+                                )
+                                log.info("[REDEEM] Div fade win: %s %s profit=$%.2f",
+                                         _fade_asset, _fade_signal, _fade_profit)
+                            else:
+                                log.warning("[REDEEM] No fill record for cond=%s token=%s — alert skipped",
+                                            cond_id[:16], _pm_token_id[:16])
+                        except Exception as _fe:
+                            log.warning("[REDEEM] Div fade lookup failed: %s", _fe)
                 except Exception as _le:
                     log.warning("[REDEEM] outcome alert failed: %s", _le, exc_info=True)
 
