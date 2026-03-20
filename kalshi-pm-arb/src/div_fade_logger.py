@@ -229,7 +229,7 @@ def _execute_live_fade(
                 DIV_FADE_STAKE_USD, effective_stake, ob_fillable, live_cents,
             )
 
-        # ── Execute FAK buy ─────────────────────────────────────────────────
+        # ── Execute FAK buy (with 1 retry on transient API error) ───────────
         client = ClobClient(
             host=PM_CLOB_URL,
             key=PM_PRIVATE_KEY,
@@ -242,11 +242,26 @@ def _execute_live_fade(
             signature_type=0,
             funder=PM_FUNDER,
         )
-        order_args = MarketOrderArgs(token_id=token_id, amount=effective_stake, side="BUY")
-        signed = client.create_market_order(order_args)
-        result = client.post_order(signed, OrderType.FAK)
 
-        if not result.get("success", True) or result.get("status") == "failed":
+        result = None
+        for attempt in range(1, 3):   # 2 attempts max
+            secs_left = candle_end_ts - int(time.time())
+            if secs_left < 30:
+                log.warning("[DIV_FADE] ABORT retry %s %s — only %ds left in candle", asset, signal, secs_left)
+                return
+            try:
+                order_args = MarketOrderArgs(token_id=token_id, amount=effective_stake, side="BUY")
+                signed = client.create_market_order(order_args)
+                result = client.post_order(signed, OrderType.FAK)
+                break   # success — exit retry loop
+            except Exception as api_exc:
+                if attempt < 2:
+                    log.warning("[DIV_FADE] API error attempt %d/2 (%s) — retrying in 3s", attempt, str(api_exc)[:80])
+                    time.sleep(3)
+                else:
+                    raise   # re-raise on second failure so outer handler logs it
+
+        if result is None or not result.get("success", True) or result.get("status") == "failed":
             log.warning("[DIV_FADE] Live FAK failed: %s", result)
             return
 
