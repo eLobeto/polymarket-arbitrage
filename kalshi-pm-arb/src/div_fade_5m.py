@@ -190,6 +190,7 @@ def maybe_log_5m_signal(
     kalshi_strike: float,
     cl_now: float,
     minutes_left_15m: float,
+    oracle_velocity: float | None = None,
 ) -> None:
     """Called by matcher alongside the 15m logger when oracle divergence fires.
 
@@ -295,6 +296,8 @@ def maybe_log_5m_signal(
         "realistic_stake_usd":  ob["realistic_stake_usd"],
         "realistic_profit_usd": ob["realistic_profit_usd"],
         "ob_error":             ob["ob_error"],
+        # ── Oracle velocity ($/s: + widening, - narrowing, None=no history) ──
+        "oracle_velocity":      oracle_velocity,
         # ── Outcome (filled by monitor) ───────────────────────────────────
         "outcome":              None,
     }

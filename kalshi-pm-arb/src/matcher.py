@@ -490,6 +490,8 @@ def find_arb_windows(kalshi_markets: list[dict], pm_markets: list[dict]) -> list
                 if _cl is not None:
                     _oracle_divergence = abs(kalshi_strike - _cl)
                     _min_left = min(km["minutes_left"], pm["minutes_left"])
+                    # Compute velocity now so both loggers can record it
+                    _fade_velocity = _get_oracle_velocity(km["asset"], _oracle_divergence)
                     div_fade_logger.maybe_log_fade_signal(
                         asset=km["asset"],
                         kalshi_strike=kalshi_strike,
@@ -501,12 +503,14 @@ def find_arb_windows(kalshi_markets: list[dict], pm_markets: list[dict]) -> list
                         kal_ticker=km.get("ticker", ""),
                         pm_up_token_id=pm.get("up_token_id", ""),
                         pm_dn_token_id=pm.get("dn_token_id", ""),
+                        oracle_velocity=_fade_velocity,
                     )
                     div_fade_5m.maybe_log_5m_signal(
                         asset=km["asset"],
                         kalshi_strike=kalshi_strike,
                         cl_now=_cl,
                         minutes_left_15m=_min_left,
+                        oracle_velocity=_fade_velocity,
                     )
                 # Don't continue — let the direction loop decide per dead zone
 

@@ -334,6 +334,7 @@ def maybe_log_fade_signal(
     kal_ticker: str = "",
     pm_up_token_id: str = "",
     pm_dn_token_id: str = "",
+    oracle_velocity: float | None = None,
 ) -> None:
     """Called by matcher when oracle divergence blocks a normal arb.
 
@@ -428,6 +429,8 @@ def maybe_log_fade_signal(
         "realistic_stake_usd": ob["realistic_stake_usd"],
         "realistic_profit_usd":ob["realistic_profit_usd"],
         "ob_error":            ob["ob_error"],
+        # ── Oracle velocity ($/s: + widening, - narrowing, None=no history) ──
+        "oracle_velocity":     oracle_velocity,
         # ── Outcome (filled by backfill) ──────────────────────────────────
         "outcome":             None,
     }
