@@ -88,6 +88,7 @@ CANDLE_MOVE_FLOOR = {
 # betting that Chainlink reprices within the 15-minute candle window.
 DIV_FADE_ENABLED         = True
 DIV_FADE_STAKE_USD       = 100.0     # $100 cap per trade
+DIV_FADE_MID_ZONE_STAKE_USD = 50.0  # reduced stake for 50-55¢ fill zone (historically poor WR)
 DIV_FADE_MAX_PRICE_CENTS = 60.0      # skip if PM already repriced above 60¢
 DIV_FADE_MIN_PRICE_CENTS = 45.0      # skip if PM price < 45¢ (kills low-edge signals)
 
