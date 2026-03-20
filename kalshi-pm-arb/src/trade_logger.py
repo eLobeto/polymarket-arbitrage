@@ -275,7 +275,8 @@ def resolve_open_arb(condition_id: str):
 def log_arb_outcome(condition_id: str, winning_side: str, value_usd: float,
                     pm_loss_usd: float = 0.0, kal_loss_usd: float = 0.0,
                     oracle_divergence_at_settle: float | None = None,
-                    spot_at_settle: float | None = None):
+                    spot_at_settle: float | None = None,
+                    _entry: dict | None = None):
     """Log which side won a resolved arb trade.
 
     winning_side: "pm"      — PM tokens redeemed (PM side was correct)
@@ -289,7 +290,9 @@ def log_arb_outcome(condition_id: str, winning_side: str, value_usd: float,
     """
     from fee_regime import FeeRegime
     try:
-        entry = resolve_open_arb(condition_id)
+        # If caller already resolved the entry (e.g. Kalshi-win path in redeemer),
+        # use it directly to avoid a double-pop from open_arbs.json.
+        entry = _entry if _entry is not None else resolve_open_arb(condition_id)
 
         # Calculate Kalshi fee: only applies when Kalshi side wins
         kalshi_fee = 0.0

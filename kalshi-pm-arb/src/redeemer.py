@@ -181,7 +181,8 @@ def redeem_winning_positions() -> float:
                                                 pm_loss_usd=pm_loss,
                                                 kal_loss_usd=kal_loss,
                                                 oracle_divergence_at_settle=_div_settle,
-                                                spot_at_settle=_spot_settle)
+                                                spot_at_settle=_spot_settle,
+                                                _entry=entry)
                             _ntf.arb_middled(
                                 asset=entry.get("asset", "?"),
                                 tf=entry.get("tf", "15m"),
@@ -201,7 +202,8 @@ def redeem_winning_positions() -> float:
                     )
                     _tl.log_arb_outcome(cid, "kalshi", 0.0,
                                         oracle_divergence_at_settle=_div_settle_kal,
-                                        spot_at_settle=_spot_settle_kal)
+                                        spot_at_settle=_spot_settle_kal,
+                                        _entry=entry)
                     try:
                         _net_profit = FeeRegime.net_profit_usd(_fill_profit, mode="taker") if _fill_profit > 0 else 0.0
                         _ntf.arb_won(
@@ -310,13 +312,14 @@ def redeem_winning_positions() -> float:
                 try:
                     # Look up original fill to calculate actual profit
                     _orig = _tl._lookup_arb_fill_record(cond_id)
-                    _asset_pm = (_orig.get("asset", "") if _orig else "") or p.get("asset", "")[:3].upper()
-                    _kal_tk_pm = (_orig.get("kal_ticker", "") if _orig else "")
-                    _div_settle_pm, _spot_settle_pm = _get_settle_oracle_snapshot(_asset_pm, _kal_tk_pm)
-                    _tl.log_arb_outcome(cond_id, "pm", val,
-                                        oracle_divergence_at_settle=_div_settle_pm,
-                                        spot_at_settle=_spot_settle_pm)
                     if _orig:
+                        # Real arb trade — log outcome and send alert
+                        _asset_pm = _orig.get("asset", "")
+                        _kal_tk_pm = _orig.get("kal_ticker", "")
+                        _div_settle_pm, _spot_settle_pm = _get_settle_oracle_snapshot(_asset_pm, _kal_tk_pm)
+                        _tl.log_arb_outcome(cond_id, "pm", val,
+                                            oracle_divergence_at_settle=_div_settle_pm,
+                                            spot_at_settle=_spot_settle_pm)
                         _total_cost = float(_orig.get("total_cost_usd", 0))
                         _real_profit = val - _total_cost
                         log.info("[REDEEM] PM win alert: asset=%s profit=$%.2f",
@@ -328,7 +331,7 @@ def redeem_winning_positions() -> float:
                             profit_usd=_real_profit,
                         )
                     else:
-                        # Check if this is a div fade position (separate positions log)
+                        # No arb_fill record — check if this is a div fade position
                         _pm_token_id = p.get("asset", "")
                         try:
                             from div_fade_logger import lookup_div_fade_position, update_div_fade_outcome
