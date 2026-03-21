@@ -229,7 +229,7 @@ def _execute_live_fade(
         from config import (
             PM_PRIVATE_KEY, PM_API_KEY, PM_API_SECRET, PM_API_PASSPHRASE,
             PM_FUNDER, PM_CLOB_URL, DIV_FADE_STAKE_USD, DIV_FADE_MAX_PRICE_CENTS,
-            DIV_FADE_MIN_PRICE_CENTS, DIV_FADE_MID_ZONE_STAKE_USD,
+            DIV_FADE_MIN_PRICE_CENTS,
         )
         from py_clob_client.client import ClobClient
         from py_clob_client.clob_types import ApiCreds, MarketOrderArgs, OrderType
@@ -259,25 +259,20 @@ def _execute_live_fade(
         ob_fillable = ob.get("ob_fillable_usd") or 0.0
         MIN_FADE_STAKE = 10.0   # not worth trading below $10
 
-        # ── Price-zone stake cap ─────────────────────────────────────────────
-        # 50–55¢ fill zone historically shows ~25% WR — reduce max stake.
-        _zone_stake = DIV_FADE_MID_ZONE_STAKE_USD if 50.0 <= live_cents < 55.0 else DIV_FADE_STAKE_USD
-        if _zone_stake < DIV_FADE_STAKE_USD:
-            log.info(
-                "[DIV_FADE] 50–55¢ fill zone (%.1f¢) — capping stake $%.0f → $%.0f",
-                live_cents, DIV_FADE_STAKE_USD, _zone_stake,
-            )
-        effective_stake = min(_zone_stake, ob_fillable)
+        # ── Stake cap (upstream pm_price gate handles bad zones) ─────────────
+        # 50-57¢ zone now blocked upstream by DIV_FADE_MIN_SIGNAL_PRICE — no
+        # per-zone stake reduction needed. Full $100 stake on all live entries.
+        effective_stake = min(DIV_FADE_STAKE_USD, ob_fillable)
         if effective_stake < MIN_FADE_STAKE:
             log.warning(
                 "[DIV_FADE] SKIP live %s %s — book too thin ($%.2f fillable, need ≥$%.0f)",
                 asset, signal, ob_fillable, MIN_FADE_STAKE,
             )
             return
-        if effective_stake < _zone_stake:
+        if effective_stake < DIV_FADE_STAKE_USD:
             log.info(
                 "[DIV_FADE] Scaling stake $%.0f → $%.2f (book only supports $%.2f within 15%% of %.1f¢)",
-                _zone_stake, effective_stake, ob_fillable, live_cents,
+                DIV_FADE_STAKE_USD, effective_stake, ob_fillable, live_cents,
             )
 
         # ── Execute FAK buy (with 1 retry on transient API error) ───────────
@@ -337,7 +332,7 @@ def _execute_live_fade(
             "fill_price_cents":    round(fill_price_cents, 2),
             "signal_price_cents":  round(signal_price_cents, 2),
             "live_price_cents":    round(live_cents, 2),
-            "target_stake_usd":    _zone_stake,
+            "target_stake_usd":    DIV_FADE_STAKE_USD,
             "effective_stake_usd": round(effective_stake, 2),
             "ob_fillable_usd":     round(ob_fillable, 2),
             "divergence":          round(divergence, 2),
@@ -358,13 +353,9 @@ def _execute_live_fade(
             from datetime import datetime, timezone as _tz
 
             _stake_note = (
-                f"${cost:.2f} of ${_zone_stake:.0f} (book thin)"
-                if effective_stake < _zone_stake
-                else (
-                    f"${cost:.2f} of ${_zone_stake:.0f} (mid-zone cap)"
-                    if _zone_stake < DIV_FADE_STAKE_USD
-                    else f"${cost:.2f}"
-                )
+                f"${cost:.2f} of ${DIV_FADE_STAKE_USD:.0f} (book thin)"
+                if effective_stake < DIV_FADE_STAKE_USD
+                else f"${cost:.2f}"
             )
             # Candle reference: Kalshi ticker for 15m, close time for 5m
             if kal_ticker:
