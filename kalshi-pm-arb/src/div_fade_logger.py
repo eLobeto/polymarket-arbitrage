@@ -405,6 +405,7 @@ def maybe_log_fade_signal(
     pm_up_token_id: str = "",
     pm_dn_token_id: str = "",
     oracle_velocity: float | None = None,
+    spot_obi: float | None = None,
 ) -> None:
     """Called by matcher when oracle divergence blocks a normal arb.
 
@@ -501,6 +502,9 @@ def maybe_log_fade_signal(
         "ob_error":            ob["ob_error"],
         # ── Oracle velocity ($/s: + widening, - narrowing, None=no history) ──
         "oracle_velocity":     oracle_velocity,
+        # ── Spot OBI: -1.0 (pure sellers) → 0 (balanced) → +1.0 (pure buyers) ──
+        # High +OBI = buy pressure (adverse for PM_DN fades); collect for calibration.
+        "spot_obi":            spot_obi,
         # ── Outcome (filled by backfill) ──────────────────────────────────
         "outcome":             None,
     }

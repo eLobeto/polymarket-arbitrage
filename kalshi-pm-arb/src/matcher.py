@@ -111,6 +111,57 @@ _SPOT_TTL   = 5.0  # seconds — aggressive freshness
 _BINANCE_SYMBOLS  = {"BTC": "BTCUSDT",  "ETH": "ETHUSDT"}
 _COINBASE_SYMBOLS = {"BTC": "BTC-USD",  "ETH": "ETH-USD"}
 
+# ── Order Book Imbalance (OBI) cache ─────────────────────────────────────────
+# ρL = (bid_depth - ask_depth) / (bid_depth + ask_depth) across top L levels
+# Range: -1.0 (pure sellers) → 0 (balanced) → +1.0 (pure buyers)
+# Used as flow-toxicity gate: high +OBI = buyers dominating → adverse for PM_DN fades
+_obi_cache: dict[str, tuple[float, float]] = {}   # asset → (obi, timestamp)
+_OBI_TTL   = 5.0   # seconds — matches spot price TTL
+_OBI_LEVELS = 10   # top-10 Binance depth levels
+
+def _fetch_obi(asset: str) -> float | None:
+    """Fetch Order Book Imbalance from Binance top-10 depth levels.
+
+    Returns ρL in [-1.0, +1.0], or None on API failure.
+    Positive = buy-side heavy (bullish pressure).
+    Negative = sell-side heavy (bearish pressure / confirms PM_DN signal).
+    Cached for 5s to avoid rate limiting.
+    """
+    now = time.time()
+    cached = _obi_cache.get(asset)
+    if cached and (now - cached[1]) < _OBI_TTL:
+        return cached[0]
+
+    symbol = _BINANCE_SYMBOLS.get(asset)
+    if not symbol:
+        return None
+
+    try:
+        r = requests.get(
+            "https://api.binance.com/api/v3/depth",
+            params={"symbol": symbol, "limit": _OBI_LEVELS},
+            timeout=3,
+        )
+        if not r.ok:
+            return None
+
+        data  = r.json()
+        bids  = data.get("bids", [])   # [[price_str, qty_str], ...]
+        asks  = data.get("asks", [])
+
+        bid_depth = sum(float(b[1]) for b in bids[:_OBI_LEVELS])
+        ask_depth = sum(float(a[1]) for a in asks[:_OBI_LEVELS])
+        total = bid_depth + ask_depth
+        if total <= 0:
+            return None
+
+        obi = round((bid_depth - ask_depth) / total, 4)
+        _obi_cache[asset] = (obi, now)
+        return obi
+
+    except Exception:
+        return None
+
 # ── CL-at-candle-open cache ──────────────────────────────────────────────────
 # Snapshots the Chainlink price at the first observation of each candle.
 # Key: "ASSET:candle_end_ts" → CL price at open.
@@ -490,8 +541,9 @@ def find_arb_windows(kalshi_markets: list[dict], pm_markets: list[dict]) -> list
                 if _cl is not None:
                     _oracle_divergence = abs(kalshi_strike - _cl)
                     _min_left = min(km["minutes_left"], pm["minutes_left"])
-                    # Compute velocity now so both loggers can record it
+                    # Compute velocity + OBI so both loggers can record them
                     _fade_velocity = _get_oracle_velocity(km["asset"], _oracle_divergence)
+                    _spot_obi = _fetch_obi(km["asset"])
                     div_fade_logger.maybe_log_fade_signal(
                         asset=km["asset"],
                         kalshi_strike=kalshi_strike,
@@ -504,6 +556,7 @@ def find_arb_windows(kalshi_markets: list[dict], pm_markets: list[dict]) -> list
                         pm_up_token_id=pm.get("up_token_id", ""),
                         pm_dn_token_id=pm.get("dn_token_id", ""),
                         oracle_velocity=_fade_velocity,
+                        spot_obi=_spot_obi,
                     )
                     div_fade_5m.maybe_log_5m_signal(
                         asset=km["asset"],
@@ -511,6 +564,7 @@ def find_arb_windows(kalshi_markets: list[dict], pm_markets: list[dict]) -> list
                         cl_now=_cl,
                         minutes_left_15m=_min_left,
                         oracle_velocity=_fade_velocity,
+                        spot_obi=_spot_obi,
                     )
                 # Don't continue — let the direction loop decide per dead zone
 
@@ -698,6 +752,7 @@ def find_arb_windows(kalshi_markets: list[dict], pm_markets: list[dict]) -> list
                     "oracle_divergence": _oracle_divergence,
                     "oracle_allowed":    _oracle_allowed,
                     "oracle_velocity":   _oracle_velocity,   # $/s: + widening, - narrowing, None=no history
+                    "spot_obi":          _fetch_obi(km["asset"]),  # order book imbalance: -1 (sellers) → +1 (buyers)
                 }
 
                 windows.append(_window)
