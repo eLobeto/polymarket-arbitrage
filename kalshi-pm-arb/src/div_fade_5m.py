@@ -1,14 +1,16 @@
-"""div_fade_5m.py — Paper-trade signal logger for Divergence Fade on PM 5-minute markets.
+"""div_fade_5m.py — Divergence Fade signal logger + live executor for PM 5-minute markets.
 
 Same oracle divergence signal as the 15m strategy (CF Benchmarks vs Chainlink), but
 targets PM's btc/eth-updown-5m-{ts} series which refreshes every 5 minutes.
 
-Paper-trade only — no live execution. Logs to div_fade_signals_5m.jsonl for
-data collection and range analysis. The div_fade_monitor handles outcome tracking.
+Logs ALL signals (paper + live) to div_fade_signals_5m.jsonl for data collection.
+Live execution fires when DIV_FADE_LIVE_SIGNALS[key] = True and pm_price passes
+the market-confirmation gate (DIV_FADE_MIN_SIGNAL_PRICE). The div_fade_monitor
+handles outcome tracking.
 
 Signal logic:
   - CF Benchmarks (Kalshi) leads Chainlink (PM) by > threshold
-  - We log a simulated buy of PM 5m UP/DN token
+  - We log the signal; if live, execute a FAK PM buy
   - Monitor checks PM midpoint after candle close to determine win/loss
 
 Dedup: one signal per asset per 5-minute candle (keyed by candle_start_ts).
@@ -28,7 +30,6 @@ from config import (
     DIV_FADE_MIN_PRICE_CENTS,
     DIV_FADE_LIVE_SIGNALS,
     DIV_FADE_ENABLED,
-    DIV_FADE_SKIP_DIV_RANGE,
     DIV_FADE_MIN_SIGNAL_PRICE,
 )
 
@@ -250,17 +251,6 @@ def maybe_log_5m_signal(
         log.debug("[DIV_FADE_5M] Skip %s %s — price %.1f¢ < min %.1f¢", asset, signal, pm_price, DIV_FADE_MIN_PRICE_CENTS)
         return
 
-    # ── Divergence dead-band filter ────────────────────────────────────────────
-    _skip_range = DIV_FADE_SKIP_DIV_RANGE.get(f"{asset}_5m_{signal}")
-    if _skip_range:
-        _lo, _hi = _skip_range
-        if _lo <= abs(divergence) < _hi:
-            log.debug(
-                "[DIV_FADE_5M] Skip %s %s — div $%.0f in dead-band ($%.0f–$%.0f)",
-                asset, signal, abs(divergence), _lo, _hi,
-            )
-            return
-
     # Sim P&L
     shares       = (_SIM_STAKE_USD * 100) / pm_price
     would_profit = round(shares * (100 - pm_price) / 100, 2)
@@ -302,7 +292,7 @@ def maybe_log_5m_signal(
         "oracle_velocity":      oracle_velocity,
         # ── Spot OBI: -1.0 (pure sellers) → 0 (balanced) → +1.0 (pure buyers) ──
         # High +OBI = buyers dominating Binance → adverse for PM_DN fades.
-        # Collect for threshold calibration; conservative hard gate applied at live entry.
+        # Logged for future threshold calibration — no live gate yet.
         "spot_obi":             spot_obi,
         # ── Outcome (filled by monitor) ───────────────────────────────────
         "outcome":              None,
@@ -355,6 +345,8 @@ def maybe_log_5m_signal(
                     candle_end_ts=ts + _CANDLE_SECS,
                     kal_ticker="",   # no Kalshi ticker for 5m signals
                     divergence=divergence,
+                    oracle_velocity=oracle_velocity,
+                    spot_obi=spot_obi,
                 )
             except Exception as exc:
                 log.error("[DIV_FADE_5M] Live execution failed: %s", exc)

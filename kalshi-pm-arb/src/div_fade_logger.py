@@ -219,6 +219,8 @@ def _execute_live_fade(
     candle_end_ts: int,
     kal_ticker: str,
     divergence: float,
+    oracle_velocity: float | None = None,
+    spot_obi: float | None = None,
 ) -> None:
     """Execute a live Polymarket FAK buy for the Divergence Fade strategy.
 
@@ -336,6 +338,8 @@ def _execute_live_fade(
             "effective_stake_usd": round(effective_stake, 2),
             "ob_fillable_usd":     round(ob_fillable, 2),
             "divergence":          round(divergence, 2),
+            "oracle_velocity":     oracle_velocity,   # $/s: + widening, - narrowing
+            "spot_obi":            spot_obi,          # -1 (sellers) → +1 (buyers)
             "outcome":             None,   # filled by backfill cron
         }
         _POSITIONS_LOG.parent.mkdir(parents=True, exist_ok=True)

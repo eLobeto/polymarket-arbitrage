@@ -112,22 +112,22 @@ DIV_FADE_LIVE_SIGNALS: dict[str, bool] = {
     "ETH_15m_PM_UP": False,
     "ETH_15m_PM_DN": False,
     "BTC_5m_PM_UP":  False,
-    "BTC_5m_PM_DN":  True,   # ✅ LIVE Mar 19 — 29W/20L 59% WR (67% after dead-band filter)
+    "BTC_5m_PM_DN":  True,   # ✅ LIVE Mar 19 | pm_price ≥ 57¢ gate (81% WR, n=16)
     "ETH_5m_PM_UP":  False,
     "ETH_5m_PM_DN":  False,
 }
 DIV_FADE_GO_LIVE_MIN_RESOLVED = 50    # minimum resolved outcomes required
 DIV_FADE_GO_LIVE_MIN_WR       = 0.50  # minimum win rate required
 
-# ── Divergence dead-band filter ────────────────────────────────────────────────
-# Skip signals where abs_divergence falls within (lo, hi) for a given signal key.
-# Data shows the $50-150 band on BTC 5m PM_DN is noise (44% WR) while <$50 and
-# >$150 both show 65-69% WR — filtering it yields 67% WR vs 59% unfiltered.
+# ── Divergence dead-band filter (DEPRECATED — kept for 15m logger compat) ────
+# Originally filtered $50-150 divergence band on BTC_5m_PM_DN, but analysis of
+# 94 signals showed divergence magnitude has ZERO predictive power (wins/losses
+# have identical avg divergence $142/$144). The apparent "44% WR" in that band
+# was an artifact of low pm_price distribution, not divergence. pm_price gate
+# (DIV_FADE_MIN_SIGNAL_PRICE) is the correct filter. Dead-band removed from 5m
+# signal logger; left empty here to avoid breaking 15m logger import.
 # Format: "ASSET_TF_SIGNAL": (lo_usd, hi_usd) — inclusive lo, exclusive hi.
-# Empty dict = no filtering.
-DIV_FADE_SKIP_DIV_RANGE: dict[str, tuple[float, float]] = {
-    "BTC_5m_PM_DN": (50.0, 150.0),
-}
+DIV_FADE_SKIP_DIV_RANGE: dict[str, tuple[float, float]] = {}
 
 # (Divergence Collapse Entry / Strategy #3 removed — see git history)
 
