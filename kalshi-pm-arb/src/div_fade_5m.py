@@ -344,27 +344,6 @@ def maybe_log_5m_signal(
                 "(market not confirming direction — adverse selection zone)",
                 asset, signal, pm_price, _min_signal_price,
             )
-        elif (
-            spot_obi is not None
-            and signal == "PM_DN" and spot_obi > 0.40
-        ):
-            # OBI gate: buyers strongly dominating Binance spot → BTC pushing UP
-            # → adverse to PM_DN entry. Conservative threshold (0.40) only blocks
-            # extreme imbalance. Calibrate threshold once OBI data accumulates.
-            log.info(
-                "[DIV_FADE_5M] ⛔ Skip live %s %s — spot_obi=%.3f > 0.40 "
-                "(buy-side book imbalance — BTC momentum against DN signal)",
-                asset, signal, spot_obi,
-            )
-        elif (
-            spot_obi is not None
-            and signal == "PM_UP" and spot_obi < -0.40
-        ):
-            log.info(
-                "[DIV_FADE_5M] ⛔ Skip live %s %s — spot_obi=%.3f < -0.40 "
-                "(sell-side book imbalance — BTC momentum against UP signal)",
-                asset, signal, spot_obi,
-            )
         else:
             try:
                 from div_fade_logger import _execute_live_fade
