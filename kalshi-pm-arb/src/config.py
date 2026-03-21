@@ -17,7 +17,7 @@ MIN_SIDE_CENTS   = 10.0   # skip if either side < 10¢
 MAX_SIDE_CENTS   = 90.0   # skip if either side > 90¢
 
 # Execution
-LIVE_STAKE_USD          = 150.0  # $150/leg
+LIVE_STAKE_USD          = 50.0   # $50/leg (reduced while EV gate accumulates data)
 WINDOW_MIN_MINUTES      = 2.0   # skip if candle closes within this many minutes
 POLL_INTERVAL_SECS          = 3    # active hours (13:00-23:00 UTC)
 POLL_INTERVAL_OVERNIGHT_SECS = 5  # 23:00-13:00 UTC
@@ -55,8 +55,28 @@ ORACLE_MAX_DIVERGENCE_USD = {
 # If dead_zone > threshold → skip that direction.
 # Applied PER DIRECTION within a pair, not to the whole market.
 DEAD_ZONE_MAX_USD = {
-    "BTC": 25.0,   # same scale as ORACLE_MAX_DIVERGENCE_USD by design
+    "BTC": 50.0,   # raised from $25 — EV gate now handles $25–$50 range (accumulating calibration data)
     "ETH": 5.0,
+}
+
+# ── Dead zone EV gate ─────────────────────────────────────────────────────────
+# Block if expected value (after dead zone risk) falls below this threshold.
+# Replaces the ratio gate with principled lognormal probability pricing.
+#
+# EV = (1 − p_dz) × profit_cents − p_dz × combined_cost_cents
+# where p_dz = P(BTC settles in dead zone) = lognormal CDF over [K_low, K_high]
+#
+# p_dz is estimated from 1-minute ATR scaled to the remaining candle time:
+#   σ_T_usd = atr_1m × sqrt(T_minutes)   [random-walk scaling]
+# This means a $15 dead zone during a quiet overnight session (ATR=$5, 3 min left)
+# → p_dz ≈ 42% → EV < 0 → blocked. Same dead zone during active hours (ATR=$25,
+# 10 min left) → p_dz ≈ 6% → EV ≈ 10¢ → passes.
+MIN_ARB_EV_CENTS = 5.0  # minimum acceptable EV after dead zone risk
+
+# Annualized vol fallback when ATR unavailable (conservative estimates)
+DEAD_ZONE_VOL_ANNUAL_FALLBACK = {
+    "BTC": 0.65,   # 65% annual — conservative; real BTC vol 40-80%
+    "ETH": 0.80,   # 80% annual — ETH slightly higher vol
 }
 
 # ── Oracle override ceiling (zero-dead-zone directions only) ─────────────────
