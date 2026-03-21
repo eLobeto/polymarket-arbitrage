@@ -107,7 +107,7 @@ CANDLE_MOVE_FLOOR = {
 # Fires a directional PM bet when CF Benchmarks leads Chainlink by > threshold,
 # betting that Chainlink reprices within the 15-minute candle window.
 DIV_FADE_ENABLED         = True
-DIV_FADE_STAKE_USD       = 100.0     # $100 per trade (full stake — bad zones blocked upstream by pm_price gate)
+DIV_FADE_STAKE_USD       = 50.0      # $50 per trade (reduced while validating live WR data)
 DIV_FADE_MAX_PRICE_CENTS = 60.0      # skip if PM already repriced above 60¢
 DIV_FADE_MIN_PRICE_CENTS = 45.0      # skip if PM price < 45¢ (kills low-edge signals)
 
