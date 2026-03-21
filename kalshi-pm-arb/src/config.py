@@ -107,6 +107,7 @@ CANDLE_MOVE_FLOOR = {
 # Fires a directional PM bet when CF Benchmarks leads Chainlink by > threshold,
 # betting that Chainlink reprices within the 15-minute candle window.
 DIV_FADE_ENABLED         = True
+DIV_FADE_EXECUTOR_DAEMON = True      # True = use div_fade_executor.py; False = inline FAK (legacy)
 DIV_FADE_STAKE_USD       = 50.0      # $50 per trade (reduced while validating live WR data)
 DIV_FADE_MAX_PRICE_CENTS = 60.0      # skip if PM already repriced above 60¢
 DIV_FADE_MIN_PRICE_CENTS = 45.0      # skip if PM price < 45¢ (kills low-edge signals)
@@ -148,6 +149,12 @@ DIV_FADE_GO_LIVE_MIN_WR       = 0.50  # minimum win rate required
 # signal logger; left empty here to avoid breaking 15m logger import.
 # Format: "ASSET_TF_SIGNAL": (lo_usd, hi_usd) — inclusive lo, exclusive hi.
 DIV_FADE_SKIP_DIV_RANGE: dict[str, tuple[float, float]] = {}
+
+# ── Div Fade Executor daemon settings (used by div_fade_executor.py) ──────────
+DIV_FADE_ENTRY_DELAY_SECS    = 75    # wait 75s after signal before entering (let spike stabilise)
+DIV_FADE_OBI_BLOCK_THRESHOLD = 0.6   # hard skip if abs(spot_obi) > 0.6 at execution time
+DIV_FADE_MAKER_TIMEOUT_SECS  = 45    # seconds to wait for GTC limit fill before cancelling
+DIV_FADE_MAKER_FALLBACK_FAK  = True  # fall back to FAK taker if maker order times out
 
 # (Divergence Collapse Entry / Strategy #3 removed — see git history)
 

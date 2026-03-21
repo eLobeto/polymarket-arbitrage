@@ -35,3 +35,25 @@ if [ -f "$PIDFILE" ]; then
 else
     echo "Warning: PID file not found — check $LOGFILE for errors"
 fi
+
+# ── Div fade executor daemon ──────────────────────────────────────────────────
+EXEC_PIDFILE="$PROJECT_DIR/logs/div_fade_executor.pid"
+EXEC_LOGFILE="$PROJECT_DIR/logs/div_fade_executor.log"
+
+# Kill any stale instance
+if [ -f "$EXEC_PIDFILE" ]; then
+    OLD_PID=$(cat "$EXEC_PIDFILE")
+    kill "$OLD_PID" 2>/dev/null || true
+    rm -f "$EXEC_PIDFILE"
+fi
+
+echo "Starting div_fade_executor..."
+"$PROJECT_DIR/.venv/bin/python3" src/div_fade_executor.py --daemon
+
+sleep 1
+if [ -f "$EXEC_PIDFILE" ]; then
+    EXEC_PID=$(cat "$EXEC_PIDFILE")
+    echo "div_fade_executor started (PID $EXEC_PID) — logging to $EXEC_LOGFILE"
+else
+    echo "Warning: div_fade_executor PID file not found — check $EXEC_LOGFILE"
+fi
