@@ -92,6 +92,17 @@ DIV_FADE_MID_ZONE_STAKE_USD = 50.0  # reduced stake for 50-55¢ fill zone (histo
 DIV_FADE_MAX_PRICE_CENTS = 60.0      # skip if PM already repriced above 60¢
 DIV_FADE_MIN_PRICE_CENTS = 45.0      # skip if PM price < 45¢ (kills low-edge signals)
 
+# ── Per-signal minimum PM price gate (market-confirmation filter) ─────────────
+# Analysis of 94 resolved BTC_5m_PM_DN signals reveals:
+#   - Divergence magnitude is NOT predictive: wins & losses have identical avg div ($142 vs $144)
+#   - pm_price_cents IS predictive: 44% WR at 50-55¢ → 76-81% WR at 55-60¢+
+# Mechanism: pm_price ≥ 57¢ means PM crowd AND oracle both confirm direction →
+#   double confirmation. At 50¢, oracle says DN but market disagrees → adverse selection.
+# This gates LIVE execution only; paper logging continues for all signals.
+DIV_FADE_MIN_SIGNAL_PRICE: dict[str, float] = {
+    "BTC_5m_PM_DN": 57.0,   # ✅ validated: 81% WR at ≥57¢ vs 44% WR at 50-55¢ (n=94)
+}
+
 # ── Per-signal go-live controls ───────────────────────────────────────────────
 # Each key is "ASSET_TF_SIGNAL". Set True only after meeting go-live thresholds.
 # Go-live threshold: DIV_FADE_GO_LIVE_MIN_RESOLVED signals resolved at > DIV_FADE_GO_LIVE_MIN_WR.

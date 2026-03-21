@@ -29,6 +29,7 @@ from config import (
     DIV_FADE_LIVE_SIGNALS,
     DIV_FADE_ENABLED,
     DIV_FADE_SKIP_DIV_RANGE,
+    DIV_FADE_MIN_SIGNAL_PRICE,
 )
 
 log = logging.getLogger("div_fade_5m")
@@ -327,16 +328,28 @@ def maybe_log_5m_signal(
 
     # ── Live execution (when signal configured live in DIV_FADE_LIVE_SIGNALS) ─
     if _should_trade_live(asset, signal) and token_id:
-        try:
-            from div_fade_logger import _execute_live_fade
-            _execute_live_fade(
-                token_id=token_id,
-                signal=signal,
-                signal_price_cents=pm_price,
-                asset=asset,
-                candle_end_ts=ts + _CANDLE_SECS,
-                kal_ticker="",   # no Kalshi ticker for 5m signals
-                divergence=divergence,
+        # ── Market-confirmation gate: pm_price must confirm direction ──────────
+        # Analysis (94 signals): divergence magnitude doesn't predict outcome.
+        # pm_price does: <57¢ → 44-56% WR; ≥57¢ → 81% WR.
+        # At 50¢, oracle says DN but market disagrees → adverse selection kills edge.
+        _min_signal_price = DIV_FADE_MIN_SIGNAL_PRICE.get(f"{asset}_5m_{signal}", 0.0)
+        if _min_signal_price and pm_price < _min_signal_price:
+            log.info(
+                "[DIV_FADE_5M] ⛔ Skip live %s %s — pm_price %.1f¢ < min %.1f¢ "
+                "(market not confirming direction — adverse selection zone)",
+                asset, signal, pm_price, _min_signal_price,
             )
-        except Exception as exc:
-            log.error("[DIV_FADE_5M] Live execution failed: %s", exc)
+        else:
+            try:
+                from div_fade_logger import _execute_live_fade
+                _execute_live_fade(
+                    token_id=token_id,
+                    signal=signal,
+                    signal_price_cents=pm_price,
+                    asset=asset,
+                    candle_end_ts=ts + _CANDLE_SECS,
+                    kal_ticker="",   # no Kalshi ticker for 5m signals
+                    divergence=divergence,
+                )
+            except Exception as exc:
+                log.error("[DIV_FADE_5M] Live execution failed: %s", exc)
