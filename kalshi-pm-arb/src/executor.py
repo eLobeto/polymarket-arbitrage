@@ -95,6 +95,17 @@ _rollback_queue: list = []
 _rollback_lock = threading.Lock()
 _rollback_thread_started = False
 
+# ── Rolled-back token registry ────────────────────────────────────────────────
+# Tracks tokens successfully sold via background rollback so the outcome
+# checker in main.py can skip recording them as losses.
+# Format: token_id → recovered_usd (what the rollback sell returned)
+_rolled_back_tokens: dict[str, float] = {}
+
+
+def get_rollback_recovery(token_id: str) -> float | None:
+    """Return recovered USD if this token was successfully rolled back, else None."""
+    return _rolled_back_tokens.get(token_id)
+
 
 def _enqueue_rollback(token_id: str, shares: float):
     """Add a failed rollback to the background retry queue."""
@@ -149,14 +160,17 @@ def _rollback_worker():
                  attempt, token_id[:16], age_s)
         result = _sell_pm_fok(token_id, shares)
         if result:
+            recovered_usd = result.get("cost", 0)
             log.info("✅ Background rollback SUCCEEDED for token %s…: sold %.2f shares → $%.2f",
-                     token_id[:16], result.get("shares", 0), result.get("cost", 0))
+                     token_id[:16], result.get("shares", 0), recovered_usd)
+            # Register so outcome checker skips recording this as a loss
+            _rolled_back_tokens[token_id] = recovered_usd
             try:
                 import notifier as _ntf_bg
                 _ntf_bg._send(
                     f"✅ <b>Background rollback succeeded</b>\n"
                     f"Token: <code>{token_id[:16]}…</code>\n"
-                    f"Sold: {result.get('shares', 0):.1f} shares → ${result.get('cost', 0):.2f}\n"
+                    f"Sold: {result.get('shares', 0):.1f} shares → ${recovered_usd:.2f}\n"
                     f"Attempt: {attempt} ({age_s:.0f}s after initial failure)"
                 )
             except Exception:
@@ -1198,7 +1212,6 @@ async def execute_arb(window: dict, live: bool = True, directional_fallback: boo
     # available and take the partial fill. A 100-contract fill at 20¢ = $20 locked.
     # Only hard-skip if depth is truly negligible (< MIN_DEPTH_CONTRACTS).
     MIN_DEPTH_CONTRACTS = 15
-    _directional_only = False
     if depth is None:
         log.warning("Depth check failed — skipping for safety")
         return {"success": False, "error": "depth check failed", "skip_cooldown": True}
@@ -1227,8 +1240,6 @@ async def execute_arb(window: dict, live: bool = True, directional_fallback: boo
     if profit_locked <= 0:
         log.warning("No profit after price refresh (combined %.1f¢) — skipping", pm_price + kal_price)
         return {"success": False, "error": f"combined {pm_price + kal_price:.1f}¢ ≥ 100¢ after refresh"}
-
-    pm_price = pm_live_pre
 
     # ── Step 0c: PM order book price-impact check ───────────────────────────
     # Walk the ask side for our order size. If VWAP > signal + PM_MAX_SLIPPAGE_CENTS
