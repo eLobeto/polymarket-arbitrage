@@ -153,16 +153,6 @@ DIV_FADE_LIVE_SIGNALS: dict[str, bool] = {
 DIV_FADE_GO_LIVE_MIN_RESOLVED = 50    # minimum resolved outcomes required
 DIV_FADE_GO_LIVE_MIN_WR       = 0.50  # minimum win rate required
 
-# ── Divergence dead-band filter (DEPRECATED — kept for 15m logger compat) ────
-# Originally filtered $50-150 divergence band on BTC_5m_PM_DN, but analysis of
-# 94 signals showed divergence magnitude has ZERO predictive power (wins/losses
-# have identical avg divergence $142/$144). The apparent "44% WR" in that band
-# was an artifact of low pm_price distribution, not divergence. pm_price gate
-# (DIV_FADE_MIN_SIGNAL_PRICE) is the correct filter. Dead-band removed from 5m
-# signal logger; left empty here to avoid breaking 15m logger import.
-# Format: "ASSET_TF_SIGNAL": (lo_usd, hi_usd) — inclusive lo, exclusive hi.
-DIV_FADE_SKIP_DIV_RANGE: dict[str, tuple[float, float]] = {}
-
 # ── Div Fade Executor daemon settings (used by div_fade_executor.py) ──────────
 DIV_FADE_ENTRY_DELAY_SECS    = 30    # wait 30s after signal before entering (reduced from 75s — 75s too long for 5m candles, most signals resolved before entry)
 DIV_FADE_OBI_BLOCK_THRESHOLD = 0.6   # hard skip if abs(spot_obi) > 0.6 at execution time

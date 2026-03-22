@@ -219,17 +219,15 @@ def redeem_winning_positions() -> float:
                     except Exception as _kal_e:
                         log.warning("[REDEEM] Kalshi win alert failed: %s", _kal_e)
 
-        # Filter to redeemable positions with real value.
-        # Require currentValue > 0.01 upfront — PM sets redeemable=True on ALL
-        # resolved positions including losers (cv=0), so we'd spam logs with
-        # hundreds of zero-value positions without this guard.
-        # Fresh wins where PM data-api hasn't updated cv yet will be caught on
-        # the next cycle (typically within 5 min).
+        # Filter to redeemable positions with real size.
+        # NOTE: PM data-api returns currentValue=0 for ALL resolved positions
+        # (winners and losers alike) — do NOT filter on currentValue.
+        # The on-chain balanceOf check inside the loop handles losers (0 balance
+        # → skip). We use size > 0.01 as the only pre-filter.
         positions = [
             p for p in all_positions
             if p.get("redeemable")
             and float(p.get("size", 0)) > 0.01
-            and float(p.get("currentValue", 0)) > 0.01
         ]
         if not positions:
             log.debug("[REDEEM] No redeemable positions")
@@ -265,14 +263,16 @@ def redeem_winning_positions() -> float:
 
             cond_id = p.get("conditionId", "")
             size    = float(p.get("size", 0))
-            val     = float(p.get("currentValue", 0))
             title   = p.get("title", "")[:50]
 
             if not cond_id:
                 continue
 
-            # On-chain balanceOf check — eliminates already-redeemed positions.
-            # currentValue was already checked in the outer filter (> 0.01).
+            # On-chain balanceOf check — eliminates losers and already-redeemed
+            # positions. PM data-api sets currentValue=0 for all resolved
+            # positions, so we use on-chain balance as the true value source.
+            # Each winning binary token is worth $1 of USDC.e, so on_chain_bal
+            # (returned as USDC units after /1e6) equals dollar value.
             token_id = p.get("asset", "")
             if token_id:
                 try:
@@ -280,10 +280,8 @@ def redeem_winning_positions() -> float:
                         Web3.to_checksum_address(addr), int(token_id)
                     ).call() / 1e6
                     if on_chain_bal < 0.01:
-                        continue  # already redeemed
-                    # Use currentValue (from PM API) as dollar value — NOT
-                    # on_chain_bal which is share count, not dollar amount.
-                    # val is already set from p["currentValue"] above.
+                        continue  # loser or already redeemed
+                    val = on_chain_bal  # use real on-chain value, not stale PM API
                 except Exception as _be:
                     log.debug("[REDEEM] On-chain balance check failed for %s: %s — skipping", title, _be)
                     continue
