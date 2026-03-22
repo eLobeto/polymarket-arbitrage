@@ -17,7 +17,8 @@ MIN_SIDE_CENTS   = 10.0   # skip if either side < 10¢
 MAX_SIDE_CENTS   = 90.0   # skip if either side > 90¢
 
 # Execution
-LIVE_STAKE_USD          = 50.0   # $50/leg (reduced while EV gate accumulates data)
+LIVE_STAKE_USD          = 25.0   # $25/leg base stake (scales up with spread)
+MAX_STAKE_PER_LEG_USD   = 50.0   # hard cap per leg regardless of spread scaling
 WINDOW_MIN_MINUTES      = 2.0   # skip if candle closes within this many minutes
 POLL_INTERVAL_SECS          = 3    # active hours (13:00-23:00 UTC)
 POLL_INTERVAL_OVERNIGHT_SECS = 5  # 23:00-13:00 UTC
@@ -55,7 +56,7 @@ ORACLE_MAX_DIVERGENCE_USD = {
 # If dead_zone > threshold → skip that direction.
 # Applied PER DIRECTION within a pair, not to the whole market.
 DEAD_ZONE_MAX_USD = {
-    "BTC": 50.0,   # raised from $25 — EV gate now handles $25–$50 range (accumulating calibration data)
+    "BTC": 75.0,   # raised from $50 — EV gate handles $25–$75 range (accumulating calibration data)
     "ETH": 5.0,
 }
 
@@ -72,6 +73,18 @@ DEAD_ZONE_MAX_USD = {
 # → p_dz ≈ 42% → EV < 0 → blocked. Same dead zone during active hours (ATR=$25,
 # 10 min left) → p_dz ≈ 6% → EV ≈ 10¢ → passes.
 MIN_ARB_EV_CENTS = 5.0  # minimum acceptable EV after dead zone risk
+
+# ── Settlement uncertainty buffer ─────────────────────────────────────────────
+# CF Benchmarks (Kalshi) settles on a 60-second average at candle close.
+# Binance spot (used for p_dz computation) can diverge from this average
+# by $7-12 for BTC in normal conditions. Observed: two $6.8 dead zone
+# trades middled on Mar 21 because the 60s average drifted into the zone.
+# Buffer widens the effective dead zone for p_dz calculation only —
+# the actual k_low/k_high are still logged for calibration.
+DEAD_ZONE_SETTLEMENT_BUFFER_USD = {
+    "BTC": 12.0,   # ~2× observed worst-case CF/spot divergence at settlement
+    "ETH": 2.0,    # proportional to ETH oracle threshold ($5)
+}
 
 # Annualized vol fallback when ATR unavailable (conservative estimates)
 DEAD_ZONE_VOL_ANNUAL_FALLBACK = {
@@ -151,7 +164,7 @@ DIV_FADE_GO_LIVE_MIN_WR       = 0.50  # minimum win rate required
 DIV_FADE_SKIP_DIV_RANGE: dict[str, tuple[float, float]] = {}
 
 # ── Div Fade Executor daemon settings (used by div_fade_executor.py) ──────────
-DIV_FADE_ENTRY_DELAY_SECS    = 75    # wait 75s after signal before entering (let spike stabilise)
+DIV_FADE_ENTRY_DELAY_SECS    = 30    # wait 30s after signal before entering (reduced from 75s — 75s too long for 5m candles, most signals resolved before entry)
 DIV_FADE_OBI_BLOCK_THRESHOLD = 0.6   # hard skip if abs(spot_obi) > 0.6 at execution time
 DIV_FADE_MAKER_TIMEOUT_SECS  = 45    # seconds to wait for GTC limit fill before cancelling
 DIV_FADE_MAKER_FALLBACK_FAK  = True  # fall back to FAK taker if maker order times out
