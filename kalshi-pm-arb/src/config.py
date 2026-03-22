@@ -18,7 +18,7 @@ MAX_SIDE_CENTS   = 90.0   # skip if either side > 90¢
 
 # Execution
 LIVE_STAKE_USD          = 25.0   # $25/leg base stake (scales up with spread)
-MAX_STAKE_PER_LEG_USD   = 50.0   # hard cap per leg regardless of spread scaling
+MAX_STAKE_PER_LEG_USD   = 75.0   # hard cap per leg regardless of spread scaling
 WINDOW_MIN_MINUTES      = 2.0   # skip if candle closes within this many minutes
 POLL_INTERVAL_SECS          = 3    # active hours (13:00-23:00 UTC)
 POLL_INTERVAL_OVERNIGHT_SECS = 5  # 23:00-13:00 UTC
@@ -56,7 +56,7 @@ ORACLE_MAX_DIVERGENCE_USD = {
 # If dead_zone > threshold → skip that direction.
 # Applied PER DIRECTION within a pair, not to the whole market.
 DEAD_ZONE_MAX_USD = {
-    "BTC": 75.0,   # raised from $50 — EV gate handles $25–$75 range (accumulating calibration data)
+    "BTC": 50.0,   # raised from $25 — EV gate now handles $25–$50 range (accumulating calibration data)
     "ETH": 5.0,
 }
 
